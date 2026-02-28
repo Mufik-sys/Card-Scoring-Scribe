@@ -3,141 +3,154 @@ from PIL import Image, ImageDraw, ImageFont
 import re
 import os
 import io
+import datetime
 
-st.set_page_config(page_title="Score Scribe", layout="wide")
+st.set_page_config(page_title="Score Scribe Pro", layout="wide")
 
-# Initialize State
+# --- INITIALIZE STATE ---
 if 'players' not in st.session_state: st.session_state.players = []
 if 'history' not in st.session_state: st.session_state.history = []
 if 'is_finished' not in st.session_state: st.session_state.is_finished = False
+if 'game_log' not in st.session_state: st.session_state.game_log = []
 
+# --- IMAGE GENERATOR ---
 def generate_sheet(history, players, is_finished):
-    # Make the canvas even bigger for high-res fonts
-    width, height = 1200, 2000
+    width, height = 1200, 2200
     img = Image.new('RGB', (width, height), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
     
-    # Draw Blue Lined Paper
-    for y in range(100, height, 80):
+    # Draw Lined Paper
+    line_spacing = 80
+    for y in range(100, height, line_spacing):
         draw.line([(0, y), (width, y)], fill=(200, 220, 240), width=2)
 
-    # FONT LOADING - EXTRA ROBUST
     font_path = "Caveat-Regular.ttf"
     if os.path.exists(font_path):
-        header_font = ImageFont.truetype(font_path, 110) # Massive Headers
-        score_font = ImageFont.truetype(font_path, 90)   # Massive Scores
+        header_font = ImageFont.truetype(font_path, 80)
+        score_font = ImageFont.truetype(font_path, 75)
+        round_font = ImageFont.truetype(font_path, 60)
     else:
-        st.error(f"🚨 FONT ERROR: '{font_path}' not found on GitHub. Please upload it!")
-        header_font = score_font = ImageFont.load_default()
+        header_font = score_font = round_font = ImageFont.load_default()
 
-    col_width = width // (len(players) + 1)
+    num_cols = len(players) + 1
+    col_width = width // (num_cols + 1)
     current_y = 110 
     
-    # 1. Names
+    # Headers
+    draw.text((col_width, current_y), "Rd", fill=(100, 100, 100), font=header_font, anchor="mt")
     for i, name in enumerate(players):
-        x = (i + 1) * col_width
-        draw.text((x, current_y), name, fill=(40, 40, 90), font=header_font, anchor="mt")
+        short_name = name[:4].capitalize()
+        x = (i + 2) * col_width
+        draw.text((x, current_y), short_name, fill=(40, 40, 90), font=header_font, anchor="mt")
     
-    current_y += 100
+    current_y += line_spacing
     totals = {p: 0 for p in players}
 
-    # 2. Rounds
-    for round_idx, round_scores in enumerate(history):
+    # Rounds
+    for round_idx, round_scores in enumerate(history, 1):
+        draw.text((col_width, current_y), str(round_idx), fill=(150, 150, 150), font=round_font, anchor="mt")
+        
         for i, p in enumerate(players):
             val = round_scores.get(p, 0)
             totals[p] += val
-            x = (i + 1) * col_width
+            x = (i + 2) * col_width
             txt = f"+{val}" if val > 0 else str(val)
             draw.text((x, current_y), txt, fill=(60, 60, 60), font=score_font, anchor="mt")
-        
-        current_y += 80
+        current_y += line_spacing
 
-        # Subtotal lines every 2 rounds
-        if (round_idx + 1) % 2 == 0 and not is_finished:
+        # Subtotals & Leader Star
+        if round_idx % 2 == 0 and not is_finished:
+            # Find current leader
+            max_score = max(totals.values()) if totals else 0
+            
             draw.line([(50, current_y), (width-50, current_y)], fill=(180, 180, 180), width=3)
             current_y += 15
             for i, p in enumerate(players):
-                x = (i + 1) * col_width
-                draw.text((x, current_y), str(totals[p]), fill=(20, 20, 20), font=score_font, anchor="mt")
-            current_y += 100
+                x = (i + 2) * col_width
+                score_text = str(totals[p])
+                # Add star if leader
+                if totals[p] == max_score and max_score != 0:
+                    score_text = f"{score_text}*" # Simple star
+                draw.text((x, current_y), score_text, fill=(20, 20, 20), font=score_font, anchor="mt")
+            current_y += line_spacing
 
-    # 3. GRAND TOTAL (Red)
+    # Grand Total
     if is_finished:
+        max_total = max(totals.values()) if totals else 0
         current_y += 30
         draw.line([(50, current_y), (width-50, current_y)], fill=(0, 0, 0), width=6)
         draw.line([(50, current_y+12), (width-50, current_y+12)], fill=(0, 0, 0), width=6)
         current_y += 40
+        draw.text((col_width, current_y), "End", fill=(220, 0, 0), font=header_font, anchor="mt")
         for i, p in enumerate(players):
-            x = (i + 1) * col_width
-            draw.text((x, current_y), str(totals[p]), fill=(220, 0, 0), font=header_font, anchor="mt")
+            x = (i + 2) * col_width
+            final_txt = str(totals[p])
+            if totals[p] == max_total and max_total != 0:
+                final_txt = f"{final_txt}*" 
+            draw.text((x, current_y), final_txt, fill=(220, 0, 0), font=header_font, anchor="mt")
             
     return img
 
-# --- INTERFACE ---
-st.title("🎙️ Score Scribe Pro")
+# --- NAVIGATION ---
+page = st.sidebar.radio("Navigation", ["Active Game", "History Log"])
 
-# Helper instruction
-st.markdown("""**Commands:** 1. Type/Say Names first (e.g., *Amena Maz Arwa*)  
-2. Record Scores: *Mufi 40 Arwa 80 winner Amena* 3. Say *Undo* or *Game Completed*""")
-
-cmd = st.text_input("Voice/Text Input:", key="input_box")
-
-if cmd:
-    raw_text = cmd.lower().strip()
+if page == "Active Game":
+    st.title("🎙️ Score Scribe Pro")
     
-    if "new game" in raw_text:
-        st.session_state.players, st.session_state.history, st.session_state.is_finished = [], [], False
-        st.success("New game started!")
+    cmd = st.text_input("Voice Input:", key="active_input")
 
-    elif "undo" in raw_text:
-        if st.session_state.history:
-            st.session_state.history.pop()
-            st.toast("Undone!")
-        else: st.warning("Nothing to undo.")
-
-    elif "game completed" in raw_text:
-        st.session_state.is_finished = True
-        st.balloons()
-
-    elif "winner" in raw_text:
-        # Improved Regex: Looks for a name and a number
-        score_data = re.findall(r'([a-zA-Z]+)\s*(\d+)', raw_text)
-        winner_match = re.search(r'winner\s*([a-zA-Z]+)', raw_text)
-        
-        if winner_match and st.session_state.players:
-            winner_name = winner_match.group(1).capitalize()
-            new_round = {p: 0 for p in st.session_state.players}
-            sum_points = 0
-            
-            for p_name, p_val in score_data:
-                p_name = p_name.capitalize()
-                if p_name in new_round:
-                    new_round[p_name] = -int(p_val)
-                    sum_points += int(p_val)
-            
-            if winner_name in new_round:
-                new_round[winner_name] = sum_points
-                st.session_state.history.append(new_round)
-                st.success(f"Recorded! {winner_name} wins {sum_points}")
-            else:
-                st.error(f"Winner '{winner_name}' not found in player list!")
+    if cmd:
+        raw = cmd.lower().strip()
+        if "new game" in raw:
+            st.session_state.players, st.session_state.history, st.session_state.is_finished = [], [], False
+            st.rerun()
+        elif "undo" in raw:
+            if st.session_state.history: st.session_state.history.pop()
+        elif "game completed" in raw:
+            st.session_state.is_finished = True
+            # Save to log
+            log_entry = {
+                "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "players": list(st.session_state.players),
+                "history": list(st.session_state.history)
+            }
+            st.session_state.game_log.append(log_entry)
+            st.balloons()
+        elif "winner" in raw:
+            score_data = re.findall(r'([a-zA-Z]+)\s*(\d+)', raw)
+            winner_match = re.search(r'winner\s*([a-zA-Z]+)', raw)
+            if winner_match:
+                winner_name = winner_match.group(1).capitalize()
+                new_round = {p: 0 for p in st.session_state.players}
+                sum_p = 0
+                for p_n, p_v in score_data:
+                    p_n = p_n.capitalize()
+                    if p_n in new_round:
+                        new_round[p_n] = -int(p_v)
+                        sum_p += int(p_v)
+                if winner_name in new_round:
+                    new_round[winner_name] = sum_p
+                    st.session_state.history.append(new_round)
         else:
-            st.error("Make sure to say 'winner [Name]'")
+            names = [n.capitalize() for n in raw.replace(",", " ").split() if n not in ["and", "complete"]]
+            for n in names:
+                if n not in st.session_state.players: st.session_state.players.append(n)
 
+    if st.session_state.players:
+        sheet = generate_sheet(st.session_state.history, st.session_state.players, st.session_state.is_finished)
+        st.image(sheet, use_container_width=True)
+        buf = io.BytesIO()
+        sheet.save(buf, format="PNG")
+        st.download_button("📥 Save Image", buf.getvalue(), "scores.png", "image/png")
+
+else:
+    st.title("📜 Game History Log")
+    if not st.session_state.game_log:
+        st.write("No completed games yet.")
     else:
-        # Assume it's a list of names
-        potential_names = [n.capitalize() for n in raw_text.replace(",", " ").split() if n not in ["and", "complete"]]
-        for name in potential_names:
-            if name not in st.session_state.players:
-                st.session_state.players.append(name)
-        st.info(f"Current Players: {', '.join(st.session_state.players)}")
-
-# Render
-if st.session_state.players:
-    final_img = generate_sheet(st.session_state.history, st.session_state.players, st.session_state.is_finished)
-    st.image(final_img, use_container_width=True)
-    
-    # Download Button
-    buf = io.BytesIO()
-    final_img.save(buf, format="PNG")
-    st.download_button("📥 Save Score Sheet", buf.getvalue(), "scores.png", "image/png")
+        for idx, entry in enumerate(reversed(st.session_state.game_log)):
+            with st.expander(f"Game on {entry['date']}"):
+                st.write(f"Players: {', '.join(entry['players'])}")
+                # Re-generate the image for this history entry
+                hist_sheet = generate_sheet(entry['history'], entry['players'], True)
+                st.image(hist_sheet, use_container_width=True)
