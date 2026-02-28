@@ -73,6 +73,3 @@ if cmd:
         names = [n.capitalize() for n in cmd.replace(",", " ").split() if n not in ["and", "complete"]]
         st.session_state.players.extend(names)
 
-if st.session_state.players:
-    img = generate_sheet(st.session_state.history, st.session_state.players, st.session_state.is_finished)
-    st.image(img)
