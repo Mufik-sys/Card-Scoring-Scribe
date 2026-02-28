@@ -9,7 +9,7 @@ import json
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Score Scribe Pro", layout="wide")
 
-# --- PERSISTENCE LOGIC (The "Notebook") ---
+# --- PERSISTENCE LOGIC ---
 SAVE_FILE = "active_game_checkpoint.json"
 
 def save_checkpoint():
@@ -33,7 +33,6 @@ def load_checkpoint():
 
 # --- INITIALIZE STATE ---
 if 'players' not in st.session_state:
-    # Try to resume if the app crashed/reset
     if not load_checkpoint():
         st.session_state.players = []
         st.session_state.history = []
@@ -42,15 +41,17 @@ if 'players' not in st.session_state:
 if 'game_log' not in st.session_state:
     st.session_state.game_log = []
 
-# --- IMAGE GENERATOR ---
+# --- UPDATED IMAGE GENERATOR ---
 def generate_sheet(history, players, is_finished):
     num_rounds = len(history)
-    base_height = 800
-    calculated_height = max(1800, base_height + (num_rounds * 150))
+    # Dynamic height calculation to accommodate more subtotal lines
+    base_height = 1000
+    calculated_height = max(2000, base_height + (num_rounds * 200))
     width = 1200
     img = Image.new('RGB', (width, calculated_height), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
     
+    # Lined Paper background
     for y in range(100, calculated_height, 80):
         draw.line([(0, y), (width, y)], fill=(200, 220, 240), width=2)
 
@@ -65,6 +66,7 @@ def generate_sheet(history, players, is_finished):
     col_width = width // (num_cols + 1)
     current_y = 110 
     
+    # Headers
     draw.text((col_width, current_y), "Rd", fill=(100, 100, 100), font=header_font, anchor="mt")
     for i, name in enumerate(players):
         x = (i + 2) * col_width
@@ -73,27 +75,35 @@ def generate_sheet(history, players, is_finished):
     current_y += 100
     totals = {p: 0 for p in players}
 
+    # Rounds loop
     for round_idx, round_scores in enumerate(history, 1):
+        # Draw Round Number
         draw.text((col_width, current_y), str(round_idx), fill=(150, 150, 150), font=score_font, anchor="mt")
+        
+        # Draw Round Scores
         for i, p in enumerate(players):
             val = round_scores.get(p, 0)
             totals[p] += val
             x = (i + 2) * col_width
             txt = f"+{val}" if val > 0 else str(val)
             draw.text((x, current_y), txt, fill=(60, 60, 60), font=score_font, anchor="mt")
-        current_y += 100
+        current_y += 100 
 
-        if round_idx % 2 == 0 and round_idx < len(history) and not is_finished:
+        # UPDATED SUB-TOTAL LOGIC: Show after every round EXCEPT Round 1
+        if round_idx > 1 and not is_finished:
             max_s = max(totals.values()) if totals else 0
-            draw.line([(50, current_y), (width-50, current_y)], fill=(180, 180, 180), width=3)
+            # Draw subtotal divider
+            draw.line([(50, current_y - 10), (width - 50, current_y - 10)], fill=(180, 180, 180), width=3)
             current_y += 15
             for i, p in enumerate(players):
                 x = (i + 2) * col_width
                 s_txt = str(totals[p])
+                # Leader Star logic
                 if totals[p] == max_s and max_s != 0: s_txt += "*"
                 draw.text((x, current_y), s_txt, fill=(20, 20, 20), font=score_font, anchor="mt")
-            current_y += 100
+            current_y += 110 
 
+    # Grand Total at the end of the game
     if is_finished:
         max_t = max(totals.values()) if totals else 0
         current_y += 30
@@ -116,13 +126,12 @@ nav = st.sidebar.radio("Go to:", ["Active Game", "History Log"])
 if nav == "Active Game":
     st.title("🎙️ Score Scribe Pro")
     
-    # Checkpoint UI
+    # Checkpoint recovery for phone browser refreshes
     if os.path.exists(SAVE_FILE) and st.session_state.phase == "setup" and not st.session_state.players:
         if st.button("♻️ Resume Previous Game?"):
             load_checkpoint()
             st.rerun()
 
-    # Status Display
     if st.session_state.phase == "setup":
         st.info("🛠️ **Setup.** Say names, then 'Start Game'.")
     elif st.session_state.phase == "play":
@@ -188,11 +197,14 @@ if nav == "Active Game":
         st.image(sheet, use_container_width=True)
         buf = io.BytesIO()
         sheet.save(buf, format="PNG")
-        st.download_button("📥 Save Image", buf.getvalue(), "scores.png", "image/png")
+        st.download_button("📥 Save Sheet Image", buf.getvalue(), "scores.png", "image/png")
 
 else:
     st.title("📜 History Log")
-    for entry in reversed(st.session_state.game_log):
-        with st.expander(f"Game: {entry['date']}"):
-            h_sheet = generate_sheet(entry['history'], entry['players'], True)
-            st.image(h_sheet, use_container_width=True)
+    if not st.session_state.game_log:
+        st.write("No completed games yet.")
+    else:
+        for entry in reversed(st.session_state.game_log):
+            with st.expander(f"Game: {entry['date']}"):
+                h_sheet = generate_sheet(entry['history'], entry['players'], True)
+                st.image(h_sheet, use_container_width=True)
