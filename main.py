@@ -44,8 +44,8 @@ if 'players' not in st.session_state:
         st.session_state.phase, st.session_state.dealer_idx = "setup", 0
         st.session_state.current_picks = {}
 
-if 'game_log' not in st.session_state:
-    st.session_state.game_log = []
+if 'game_log' not in st.session_state: st.session_state.game_log = []
+if 'profiles' not in st.session_state: st.session_state.profiles = {}
 
 # --- IMAGE GENERATOR ---
 def generate_sheet(history, players, is_finished, dealer_idx, current_picks):
@@ -56,7 +56,6 @@ def generate_sheet(history, players, is_finished, dealer_idx, current_picks):
     
     img = Image.new('RGB', (width, calculated_height), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
-    
     for y in range(100, calculated_height, 80):
         draw.line([(0, y), (width, y)], fill=(200, 220, 240), width=2)
 
@@ -72,7 +71,6 @@ def generate_sheet(history, players, is_finished, dealer_idx, current_picks):
     col_width = width // (num_players + 2)
     current_y = 160 
     
-    # Headers
     draw.text((col_width, current_y), "Rd", fill=(100, 100, 100), font=header_font, anchor="mt")
     for i, name in enumerate(players):
         x = (i + 2) * col_width
@@ -88,7 +86,6 @@ def generate_sheet(history, players, is_finished, dealer_idx, current_picks):
     
     current_y += 100
     totals = {p: 0 for p in players}
-
     for round_idx, round_scores in enumerate(history, 1):
         draw.text((col_width, current_y), str(round_idx), fill=(150, 150, 150), font=score_font, anchor="mt")
         for i, p in enumerate(players):
@@ -98,7 +95,6 @@ def generate_sheet(history, players, is_finished, dealer_idx, current_picks):
             txt = f"+{val}" if val > 0 else str(val)
             draw.text((x, current_y), txt, fill=(60, 60, 60), font=score_font, anchor="mt")
         current_y += 100 
-
         if round_idx > 1 and not is_finished:
             max_s = max(totals.values()) if totals else 0
             draw.line([(50, current_y - 10), (width - 50, current_y - 10)], fill=(180, 180, 180), width=3)
@@ -107,7 +103,6 @@ def generate_sheet(history, players, is_finished, dealer_idx, current_picks):
                 x = (i + 2) * col_width
                 s_txt = str(totals[p])
                 if totals[p] == max_s and max_s != 0: s_txt += "*"
-                # ORANGE INK FOR SUBTOTALS
                 draw.text((x, current_y), s_txt, fill=(255, 140, 0), font=score_font, anchor="mt")
             current_y += 110 
 
@@ -123,13 +118,24 @@ def generate_sheet(history, players, is_finished, dealer_idx, current_picks):
             f_txt = str(totals[p])
             if totals[p] == max_t and max_t != 0: f_txt += "*" 
             draw.text((x, current_y), f_txt, fill=(220, 0, 0), font=header_font, anchor="mt")
-            
     return img
 
-# --- MAIN UI ---
+# --- SIDEBAR & PROFILES ---
 st.sidebar.title("Navigation")
 nav = st.sidebar.radio("Go to:", ["Active Game", "History Log"])
 
+st.sidebar.markdown("---")
+with st.sidebar.expander("👤 Manage Profiles"):
+    if st.session_state.players:
+        p_to_edit = st.selectbox("Select Player:", st.session_state.players)
+        img_file = st.file_uploader(f"Upload photo for {p_to_edit}", type=['jpg', 'png', 'jpeg'])
+        if img_file:
+            st.session_state.profiles[p_to_edit] = img_file.read()
+            st.success("Photo updated!")
+    else:
+        st.write("Start a game to add profiles.")
+
+# --- MAIN UI ---
 if nav == "Active Game":
     st.title("🎙️ Score Scribe Pro")
     c1, c2, c3 = st.columns([3, 1, 1])
@@ -176,7 +182,7 @@ if nav == "Active Game":
                         if count < 3: st.session_state.current_picks[p] = count + 1; save_checkpoint(); break
             elif "game completed" in raw:
                 st.session_state.phase = "finished"
-                st.session_state.game_log.append({"date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "players": list(st.session_state.players), "history": list(st.session_state.history)})
+                st.session_state.game_log.append({"id": datetime.datetime.now().timestamp(), "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "players": list(st.session_state.players), "history": list(st.session_state.history)})
                 if os.path.exists(SAVE_FILE): os.remove(SAVE_FILE)
                 st.balloons()
             elif "winner" in raw:
@@ -198,9 +204,8 @@ if nav == "Active Game":
         st.download_button("📥 Save Image", buf.getvalue(), "scores.png", "image/png")
 else:
     st.title("📜 History & Standings")
-    if st.sidebar.button("🗑️ Clear All History"): st.session_state.game_log = []; st.rerun()
+    if st.sidebar.button("🗑️ Wipe All History"): st.session_state.game_log = []; st.rerun()
     
-    # CALCULATE WINS
     if st.session_state.game_log:
         win_counts = {}
         for entry in st.session_state.game_log:
@@ -212,11 +217,19 @@ else:
                 win_counts[winner] = win_counts.get(winner, 0) + 1
         
         st.subheader("🏆 Series Standings")
-        cols = st.columns(len(win_counts) if win_counts else 1)
+        s_cols = st.columns(len(win_counts))
         for i, (player, wins) in enumerate(win_counts.items()):
-            with cols[i % len(cols)]: st.metric(label=player, value=f"{wins} Wins")
+            with s_cols[i]:
+                if player in st.session_state.profiles:
+                    st.image(st.session_state.profiles[player], width=80)
+                st.metric(label=player, value=f"{wins} Wins")
     
     st.markdown("---")
-    for entry in reversed(st.session_state.game_log):
+    # Loop through log with index to allow targeted deletion
+    for idx, entry in enumerate(reversed(st.session_state.game_log)):
+        actual_idx = len(st.session_state.game_log) - 1 - idx
         with st.expander(f"Game: {entry['date']}"):
             st.image(generate_sheet(entry['history'], entry['players'], True, 0, {}), use_container_width=True)
+            if st.button(f"🗑️ Remove Game from Log", key=f"del_{entry['id']}"):
+                st.session_state.game_log.pop(actual_idx)
+                st.rerun()
