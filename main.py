@@ -13,28 +13,35 @@ st.set_page_config(page_title="Score Scribe Pro", layout="wide")
 SAVE_FILE = "active_game_checkpoint.json"
 
 def save_checkpoint():
-    data = {
-        "players": st.session_state.players,
-        "history": st.session_state.history,
-        "redo_stack": st.session_state.redo_stack,
-        "phase": st.session_state.phase,
-        "dealer_idx": st.session_state.dealer_idx,
-        "picks": st.session_state.current_picks
-    }
-    with open(SAVE_FILE, "w") as f:
-        json.dump(data, f)
+    try:
+        data = {
+            "players": st.session_state.players,
+            "history": st.session_state.history,
+            "redo_stack": st.session_state.redo_stack,
+            "phase": st.session_state.phase,
+            "dealer_idx": st.session_state.dealer_idx,
+            "picks": st.session_state.current_picks
+        }
+        with open(SAVE_FILE, "w") as f:
+            json.dump(data, f)
+    except:
+        pass
 
 def load_checkpoint():
     if os.path.exists(SAVE_FILE):
-        with open(SAVE_FILE, "r") as f:
-            data = json.load(f)
-            st.session_state.players = data.get("players", [])
-            st.session_state.history = data.get("history", [])
-            st.session_state.redo_stack = data.get("redo_stack", [])
-            st.session_state.phase = data.get("phase", "setup")
-            st.session_state.dealer_idx = data.get("dealer_idx", 0)
-            st.session_state.current_picks = data.get("picks", {})
-        return True
+        try:
+            with open(SAVE_FILE, "r") as f:
+                data = json.load(f)
+                st.session_state.players = data.get("players", [])
+                st.session_state.history = data.get("history", [])
+                st.session_state.redo_stack = data.get("redo_stack", [])
+                st.session_state.phase = data.get("phase", "setup")
+                st.session_state.dealer_idx = data.get("dealer_idx", 0)
+                st.session_state.current_picks = data.get("picks", {})
+            return True
+        except:
+            if os.path.exists(SAVE_FILE): os.remove(SAVE_FILE)
+            return False
     return False
 
 # --- INITIALIZE ---
@@ -48,7 +55,7 @@ if 'game_log' not in st.session_state: st.session_state.game_log = []
 if 'profiles' not in st.session_state: st.session_state.profiles = {}
 
 # --- IMAGE GENERATOR ---
-def generate_sheet(history, players, is_finished, dealer_idx, current_picks):
+def generate_sheet(history, players, is_finished, dealer_idx, current_picks, status=""):
     num_rounds = len(history)
     num_players = len(players)
     width = max(1200, (num_players + 1) * 180) 
@@ -77,12 +84,14 @@ def generate_sheet(history, players, is_finished, dealer_idx, current_picks):
         picks_count = current_picks.get(name, 0)
         if picks_count > 0 and not is_finished:
             draw.text((x, current_y - 80), "|" * picks_count, fill=(200, 0, 0), font=tally_font, anchor="mt")
+        
         display_name = name[:4].capitalize()
         draw.text((x, current_y), display_name, fill=(40, 40, 90), font=header_font, anchor="mt")
+        
         if i == dealer_idx and not is_finished:
             bbox = draw.textbbox((x, current_y), display_name, font=header_font, anchor="mt")
-            draw.line([(bbox[0], bbox[3]+5), (bbox[2], bbox[3]+5)], fill=(40, 40, 90), width=4)
-            draw.line([(bbox[0], bbox[3]+12), (bbox[2], bbox[3]+12)], fill=(40, 40, 90), width=4)
+            draw.line([(bbox[0], bbox[3]+5), (bbox[2], bbox[3]+5)], fill=(40, 40, 90), width=6)
+            draw.line([(bbox[0], bbox[3]+15), (bbox[2], bbox[3]+15)], fill=(40, 40, 90), width=6)
     
     current_y += 100
     totals = {p: 0 for p in players}
@@ -112,7 +121,8 @@ def generate_sheet(history, players, is_finished, dealer_idx, current_picks):
         draw.line([(50, current_y), (width-50, current_y)], fill=(0, 0, 0), width=6)
         draw.line([(50, current_y+12), (width-50, current_y+12)], fill=(0, 0, 0), width=6)
         current_y += 40
-        draw.text((col_width, current_y), "End", fill=(220, 0, 0), font=header_font, anchor="mt")
+        label = "End" if status != "Terminated" else "TG"
+        draw.text((col_width, current_y), label, fill=(220, 0, 0), font=header_font, anchor="mt")
         for i, p in enumerate(players):
             x = (i + 2) * col_width
             f_txt = str(totals[p])
@@ -120,25 +130,31 @@ def generate_sheet(history, players, is_finished, dealer_idx, current_picks):
             draw.text((x, current_y), f_txt, fill=(220, 0, 0), font=header_font, anchor="mt")
     return img
 
-# --- SIDEBAR & PROFILES ---
+def reset_active_game():
+    if os.path.exists(SAVE_FILE): os.remove(SAVE_FILE)
+    st.session_state.players, st.session_state.history, st.session_state.redo_stack, st.session_state.phase = [], [], [], "setup"
+    st.session_state.dealer_idx, st.session_state.current_picks = 0, {}
+
+# --- SIDEBAR & NAV ---
 st.sidebar.title("Navigation")
 nav = st.sidebar.radio("Go to:", ["Active Game", "History Log"])
 
-st.sidebar.markdown("---")
 with st.sidebar.expander("👤 Manage Profiles"):
     if st.session_state.players:
         p_to_edit = st.selectbox("Select Player:", st.session_state.players)
-        img_file = st.file_uploader(f"Upload photo for {p_to_edit}", type=['jpg', 'png', 'jpeg'])
+        img_file = st.file_uploader(f"Upload photo", type=['jpg', 'png', 'jpeg'])
         if img_file:
             st.session_state.profiles[p_to_edit] = img_file.read()
-            st.success("Photo updated!")
-    else:
-        st.write("Start a game to add profiles.")
+            st.success("Updated!")
+    else: st.write("Start a game first.")
+
+if st.sidebar.button("🛑 Force Reset App"):
+    reset_active_game(); st.session_state.game_log = []; st.rerun()
 
 # --- MAIN UI ---
 if nav == "Active Game":
     st.title("🎙️ Score Scribe Pro")
-    c1, c2, c3 = st.columns([3, 1, 1])
+    c1, c2, c3, c4 = st.columns([3, 1, 1, 1])
     with c1: cmd = st.text_input("Command:", key="input_box")
     with c2: 
         st.write(" "); 
@@ -154,14 +170,23 @@ if nav == "Active Game":
                 st.session_state.history.append(st.session_state.redo_stack.pop())
                 st.session_state.dealer_idx = (st.session_state.dealer_idx + 1) % len(st.session_state.players)
                 save_checkpoint(); st.rerun()
+    with c4:
+        st.write(" "); 
+        if st.button("🚫 TG", help="Terminate Game Midway"):
+            if st.session_state.players and st.session_state.history:
+                st.session_state.game_log.append({
+                    "id": datetime.datetime.now().timestamp(),
+                    "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "status": "Terminated",
+                    "players": list(st.session_state.players),
+                    "history": list(st.session_state.history)
+                })
+                reset_active_game(); st.rerun()
+            else: st.warning("Nothing to terminate.")
 
     if cmd:
         raw = cmd.lower().strip()
-        if "new game" in raw:
-            st.session_state.players, st.session_state.history, st.session_state.redo_stack, st.session_state.phase = [], [], [], "setup"
-            st.session_state.dealer_idx, st.session_state.current_picks = 0, {}
-            if os.path.exists(SAVE_FILE): os.remove(SAVE_FILE)
-            st.rerun()
+        if "new game" in raw: reset_active_game(); st.rerun()
         elif "dealer" in raw:
             for i, p in enumerate(st.session_state.players):
                 if p.lower() in raw: st.session_state.dealer_idx = i; save_checkpoint(); st.rerun(); break
@@ -182,7 +207,7 @@ if nav == "Active Game":
                         if count < 3: st.session_state.current_picks[p] = count + 1; save_checkpoint(); break
             elif "game completed" in raw:
                 st.session_state.phase = "finished"
-                st.session_state.game_log.append({"id": datetime.datetime.now().timestamp(), "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "players": list(st.session_state.players), "history": list(st.session_state.history)})
+                st.session_state.game_log.append({"id": datetime.datetime.now().timestamp(), "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "status": "Finished", "players": list(st.session_state.players), "history": list(st.session_state.history)})
                 if os.path.exists(SAVE_FILE): os.remove(SAVE_FILE)
                 st.balloons()
             elif "winner" in raw:
@@ -204,8 +229,7 @@ if nav == "Active Game":
         st.download_button("📥 Save Image", buf.getvalue(), "scores.png", "image/png")
 else:
     st.title("📜 History & Standings")
-    if st.sidebar.button("🗑️ Wipe All History"): st.session_state.game_log = []; st.rerun()
-    
+    if st.sidebar.button("🗑️ Wipe All"): st.session_state.game_log = []; st.rerun()
     if st.session_state.game_log:
         win_counts = {}
         for entry in st.session_state.game_log:
@@ -213,23 +237,17 @@ else:
             for rnd in entry['history']:
                 for p in entry['players']: totals[p] += rnd.get(p, 0)
             if totals:
-                winner = max(totals, key=totals.get)
-                win_counts[winner] = win_counts.get(winner, 0) + 1
-        
-        st.subheader("🏆 Series Standings")
+                winner = max(totals, key=totals.get); win_counts[winner] = win_counts.get(winner, 0) + 1
         s_cols = st.columns(len(win_counts))
         for i, (player, wins) in enumerate(win_counts.items()):
             with s_cols[i]:
-                if player in st.session_state.profiles:
-                    st.image(st.session_state.profiles[player], width=80)
+                if player in st.session_state.profiles: st.image(st.session_state.profiles[player], width=80)
                 st.metric(label=player, value=f"{wins} Wins")
-    
     st.markdown("---")
-    # Loop through log with index to allow targeted deletion
     for idx, entry in enumerate(reversed(st.session_state.game_log)):
         actual_idx = len(st.session_state.game_log) - 1 - idx
-        with st.expander(f"Game: {entry['date']}"):
-            st.image(generate_sheet(entry['history'], entry['players'], True, 0, {}), use_container_width=True)
-            if st.button(f"🗑️ Remove Game from Log", key=f"del_{entry['id']}"):
-                st.session_state.game_log.pop(actual_idx)
-                st.rerun()
+        status_label = entry.get("status", "Finished")
+        with st.expander(f"Game: {entry['date']} ({status_label})"):
+            st.image(generate_sheet(entry['history'], entry['players'], True, 0, {}, status=status_label), use_container_width=True)
+            if st.button(f"🗑️ Delete", key=f"del_{entry['id']}"):
+                st.session_state.game_log.pop(actual_idx); st.rerun()
