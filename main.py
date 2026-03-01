@@ -5,7 +5,7 @@ import re, os, io, datetime, json, time
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Score Scribe Pro", layout="wide")
 
-# --- PERSISTENCE (Lightweight) ---
+# --- PERSISTENCE ---
 SAVE_FILE = "active_game_checkpoint.json"
 
 def save_checkpoint():
@@ -13,6 +13,7 @@ def save_checkpoint():
         data = {
             "players": st.session_state.players,
             "history": st.session_state.history,
+            "redo_stack": st.session_state.redo_stack,
             "phase": st.session_state.phase,
             "dealer_idx": st.session_state.dealer_idx,
             "picks": st.session_state.current_picks
@@ -28,6 +29,7 @@ def load_checkpoint():
                 data = json.load(f)
                 st.session_state.players = data.get("players", [])
                 st.session_state.history = data.get("history", [])
+                st.session_state.redo_stack = data.get("redo_stack", [])
                 st.session_state.phase = data.get("phase", "setup")
                 st.session_state.dealer_idx = data.get("dealer_idx", 0)
                 st.session_state.current_picks = data.get("picks", {})
@@ -38,7 +40,7 @@ def load_checkpoint():
 # --- INITIALIZE ---
 if 'players' not in st.session_state:
     if not load_checkpoint():
-        st.session_state.players, st.session_state.history = [], []
+        st.session_state.players, st.session_state.history, st.session_state.redo_stack = [], [], []
         st.session_state.phase, st.session_state.dealer_idx = "setup", 0
         st.session_state.current_picks = {}
 if 'game_log' not in st.session_state: st.session_state.game_log = []
@@ -54,12 +56,12 @@ def set_status(msg):
 def generate_sheet(history, players, is_finished, dealer_idx, current_picks, status=""):
     num_rounds, num_players = len(history), len(players)
     width = max(1400, (num_players + 1) * 220) 
-    # Extra height at top for photos
-    calculated_height = max(2600, 1400 + (num_rounds * 210))
+    # Extra height at top to ensure photos are visible
+    calculated_height = max(2800, 1500 + (num_rounds * 210))
     img = Image.new('RGB', (width, calculated_height), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
     
-    # Paper Lines
+    # Paper Background
     for y in range(100, calculated_height, 80):
         draw.line([(0, y), (width, y)], fill=(225, 235, 250), width=2)
 
@@ -72,46 +74,43 @@ def generate_sheet(history, players, is_finished, dealer_idx, current_picks, sta
     else: header_font = score_font = tally_font = ImageFont.load_default()
 
     col_width = width // (num_players + 2)
-    current_y = 600 # Starting position for names
+    current_y = 650 # Starting position for names to allow photos above
     
     draw.text((col_width, current_y), "Rd", fill=(120, 120, 120), font=header_font, anchor="mt")
     for i, name in enumerate(players):
         x = (i + 2) * col_width
         
-        # 1. Profile Photo Rendering
+        # 1. Profile Photo Rendering (FIXED COORDINATES)
         if name in st.session_state.profiles:
             try:
-                p_data = st.session_state.profiles[name]
-                p_img = Image.open(io.BytesIO(p_data))
+                p_img = Image.open(io.BytesIO(st.session_state.profiles[name]))
                 p_img = ImageOps.fit(p_img, (220, 220), Image.Resampling.LANCZOS)
                 mask = Image.new('L', (220, 220), 0)
                 ImageDraw.Draw(mask).ellipse((0, 0, 220, 220), fill=255)
-                # Paste photo 350 pixels above the name
-                img.paste(p_img, (x - 110, current_y - 450), mask)
-                draw.ellipse((x-114, current_y-454, x+114, current_y-226), outline=(40, 40, 100), width=6)
+                # Paste at y=200, which is well above the name at y=650
+                img.paste(p_img, (x - 110, 200), mask)
+                draw.ellipse((x-114, 196, x+114, 424), outline=(40, 40, 100), width=6)
             except: pass
 
         # 2. Tallies
         count = current_picks.get(name, 0)
         if count > 0 and not is_finished:
-            draw.text((x, current_y - 180), "|" * count, fill=(240, 0, 0), font=tally_font, anchor="mt")
+            draw.text((x, current_y - 150), "|" * count, fill=(240, 0, 0), font=tally_font, anchor="mt")
         
-        # 3. Names & RED DOUBLE UNDERLINE FOR DEALER
+        # 3. Names & RED DOUBLE UNDERLINE
         display_name = name[:4].capitalize()
         draw.text((x, current_y), display_name, fill=(40, 40, 100), font=header_font, anchor="mt")
         if i == dealer_idx and not is_finished:
             bbox = draw.textbbox((x, current_y), display_name, font=header_font, anchor="mt")
-            # Extra thick lines for visibility
-            draw.line([(bbox[0]-15, bbox[3]+15), (bbox[2]+15, bbox[3]+15)], fill=(255, 0, 0), width=12)
-            draw.line([(bbox[0]-15, bbox[3]+35), (bbox[2]+15, bbox[3]+35)], fill=(255, 0, 0), width=12)
+            draw.line([(bbox[0]-20, bbox[3]+15), (bbox[2]+20, bbox[3]+15)], fill=(255, 0, 0), width=15)
+            draw.line([(bbox[0]-20, bbox[3]+40), (bbox[2]+20, bbox[3]+40)], fill=(255, 0, 0), width=15)
     
-    current_y += 140
+    current_y += 150
     totals = {p: 0 for p in players}
     for round_idx, round_scores in enumerate(history, 1):
         draw.text((col_width, current_y), str(round_idx), fill=(160, 160, 160), font=score_font, anchor="mt")
         for i, p in enumerate(players):
-            val = round_scores.get(p, 0)
-            totals[p] += val
+            val = round_scores.get(p, 0); totals[p] += val
             x, txt = (i + 2) * col_width, (f"+{val}" if val > 0 else str(val))
             draw.text((x, current_y), txt, fill=(50, 50, 50), font=score_font, anchor="mt")
         current_y += 100 
@@ -144,16 +143,16 @@ def generate_sheet(history, players, is_finished, dealer_idx, current_picks, sta
 st.sidebar.title("Score Scribe")
 nav = st.sidebar.radio("Navigation", ["Active Game", "History Log"])
 
-with st.sidebar.expander("👤 Upload Player Photos"):
+with st.sidebar.expander("👤 Profile Photos"):
     if st.session_state.players:
         p_sel = st.selectbox("Player:", st.session_state.players)
         img_f = st.file_uploader("Upload Image", type=['jpg', 'png', 'jpeg'], key=f"up_{p_sel}")
         if img_f: 
             st.session_state.profiles[p_sel] = img_f.read()
-            st.success("Photo added!")
-            st.rerun()
+            st.success("Photo added!"); st.rerun()
+    else: st.write("Add players first.")
 
-# --- MAIN SCREEN ---
+# --- MAIN SCREEN LOGIC (TOP OF SCRIPT) ---
 if nav == "Active Game":
     if time.time() - st.session_state.msg_time < 3:
         st.info(f"⚡ **Last Action:** {st.session_state.last_msg}")
@@ -161,18 +160,25 @@ if nav == "Active Game":
     st.title("🎙️ Score Scribe Pro")
     cmd = st.text_input("Command:", key="input_box")
     
-    # VERTICAL BUTTONS FOR STABILITY
+    # 1. BUTTON ACTIONS (Vertical for mobile stability)
     if st.button("↩️ Undo"):
         if st.session_state.history:
-            st.session_state.history.pop()
+            st.session_state.redo_stack.append(st.session_state.history.pop())
             st.session_state.dealer_idx = (st.session_state.dealer_idx - 1) % len(st.session_state.players)
             set_status("Undone."); save_checkpoint(); st.rerun()
+    if st.button("↪️ Redo"):
+        if st.session_state.redo_stack:
+            st.session_state.history.append(st.session_state.redo_stack.pop())
+            st.session_state.dealer_idx = (st.session_state.dealer_idx + 1) % len(st.session_state.players)
+            set_status("Redone."); save_checkpoint(); st.rerun()
     if st.button("🚫 TG"):
         if st.session_state.players and st.session_state.history:
-            st.session_state.game_log.append({"id": time.time(), "date": datetime.datetime.now().strftime("%H:%M"), "status": "Terminated", "players": list(st.session_state.players), "history": list(st.session_state.history)})
+            st.session_state.game_log.append({"id": time.time(), "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "status": "Terminated", "players": list(st.session_state.players), "history": list(st.session_state.history)})
             st.session_state.players, st.session_state.history, st.session_state.phase = [], [], "setup"
-            set_status("Terminated Midway."); st.rerun()
+            st.session_state.dealer_idx, st.session_state.current_picks = 0, {}
+            set_status("Terminated."); st.rerun()
 
+    # 2. COMMAND PROCESSING
     if cmd:
         raw = cmd.lower().strip()
         if "new game" in raw:
@@ -182,12 +188,10 @@ if nav == "Active Game":
             set_status("New Game."); st.rerun()
         
         elif "dealer" in raw:
-            found = False
             for i, p in enumerate(st.session_state.players):
                 if p.lower() in raw:
                     st.session_state.dealer_idx = i
-                    set_status(f"Dealer: {p}"); found = True; break
-            if found: save_checkpoint(); st.rerun()
+                    set_status(f"Dealer: {p}"); save_checkpoint(); st.rerun()
 
         elif st.session_state.phase == "setup":
             if "start" in raw or "complete" in raw:
@@ -209,8 +213,7 @@ if nav == "Active Game":
                         if cur < 3:
                             st.session_state.current_picks[p] = cur + 1
                             set_status(f"{p} pick ({cur+1}/3)"); save_checkpoint(); st.rerun()
-                        break # Prevents 3-tally bug
-
+                        break
             elif "winner" in raw:
                 score_data = re.findall(r'([a-zA-Z]+)\s*(\d+)', raw); winner_match = re.search(r'winner\s*([a-zA-Z]+)', raw)
                 if winner_match:
@@ -222,8 +225,9 @@ if nav == "Active Game":
                         new_round[w_name] = sum_p; st.session_state.history.append(new_round)
                         st.session_state.dealer_idx = (st.session_state.dealer_idx + 1) % len(st.session_state.players)
                         for p in st.session_state.players: st.session_state.current_picks[p] = 0
-                        set_status("Round recorded."); save_checkpoint(); st.rerun()
+                        set_status("Round recorded."); st.rerun()
 
+    # 3. SHEET RENDERING (LATEST DATA)
     if st.session_state.phase == "play":
         st.success(f"🎴 **Dealer:** {st.session_state.players[st.session_state.dealer_idx]}")
 
@@ -249,3 +253,5 @@ else:
     for idx, entry in enumerate(reversed(st.session_state.game_log)):
         with st.expander(f"Game: {entry['date']} ({entry.get('status', 'End')})"):
             st.image(generate_sheet(entry['history'], entry['players'], True, 0, {}, status=entry.get('status', "")), use_container_width=True)
+            if st.button(f"Delete Game {idx}", key=f"del_{idx}"):
+                st.session_state.game_log.pop(len(st.session_state.game_log)-1-idx); st.rerun()
