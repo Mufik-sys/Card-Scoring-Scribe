@@ -91,7 +91,14 @@ def draw_notebook(history, players, dealer_idx, picks):
     return img
 
 # --- 3. MAIN UI ---
-st.title("🎙️ Score Scribe Pro (v9)")
+st.title("🎙️ Score Scribe Pro (v10)")
+
+# Reinstated Emergency Reset Button
+if st.button("🚨 EMERGENCY RESET"):
+    st.query_params.clear()
+    for key in list(st.session_state.keys()): 
+        del st.session_state[key]
+    st.rerun()
 
 # The Form 
 with st.form("input_form", clear_on_submit=True):
