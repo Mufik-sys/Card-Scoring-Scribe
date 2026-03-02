@@ -1,53 +1,45 @@
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
-import re, os, json, zlib, base64
+import re, json, zlib, base64
+from datetime import datetime
 
-# --- 1. ROBUST SETUP ---
+# --- 1. SETUP ---
 st.set_page_config(page_title="Score Scribe Pro", layout="wide")
 
-SAVE_FILE = "scribe_state.json"
+def pack_state():
+    data = {
+        "p": st.session_state.players, "h": st.session_state.history,
+        "d": st.session_state.dealer, "pk": st.session_state.picks,
+        "m": st.session_state.mode, "a": st.session_state.archive
+    }
+    json_str = json.dumps(data)
+    compressed = zlib.compress(json_str.encode())
+    b64_str = base64.urlsafe_b64encode(compressed).decode()
+    st.query_params["save"] = b64_str
+    return b64_str
 
-def save_state():
-    data = {"p": st.session_state.players, "h": st.session_state.history, "d": st.session_state.dealer, "pk": st.session_state.picks, "m": st.session_state.mode}
-    # 1. Save to Local File
+def unpack_state(b64_str):
     try:
-        with open(SAVE_FILE, "w") as f: json.dump(data, f)
-    except: pass
-    
-    # 2. Save to URL (This survives server sleep/restarts!)
-    try:
-        json_str = json.dumps(data)
-        compressed = zlib.compress(json_str.encode())
-        b64_str = base64.urlsafe_b64encode(compressed).decode()
-        st.query_params["save"] = b64_str
-    except: pass
-
-def load_state():
-    # 1. Check URL Memory first (Strongest)
-    if "save" in st.query_params:
-        try:
-            b64_str = st.query_params["save"]
-            compressed = base64.urlsafe_b64decode(b64_str.encode())
-            json_str = zlib.decompress(compressed).decode()
-            d = json.loads(json_str)
-            st.session_state.update({"players": d['p'], "history": d['h'], "dealer": d['d'], "picks": d['pk'], "mode": d['m']})
-            return True
-        except: pass
-    # 2. Check Local File
-    if os.path.exists(SAVE_FILE):
-        try:
-            with open(SAVE_FILE, "r") as f:
-                d = json.load(f)
-                st.session_state.update({"players": d['p'], "history": d['h'], "dealer": d['d'], "picks": d['pk'], "mode": d['m']})
-            return True
-        except: pass
-    return False
+        compressed = base64.urlsafe_b64decode(b64_str.encode())
+        json_str = zlib.decompress(compressed).decode()
+        d = json.loads(json_str)
+        st.session_state.update({
+            "players": d['p'], "history": d['h'], "dealer": d['d'], 
+            "picks": d['pk'], "mode": d['m'], "archive": d.get('a', [])
+        })
+        return True
+    except: return False
 
 if 'players' not in st.session_state:
-    if not load_state():
-        st.session_state.update({"players": [], "history": [], "dealer": 0, "picks": {}, "mode": "setup"})
+    loaded = False
+    if "save" in st.query_params: loaded = unpack_state(st.query_params["save"])
+    if not loaded:
+        st.session_state.update({
+            "players": [], "history": [], "dealer": 0, 
+            "picks": {}, "mode": "setup", "archive": []
+        })
 
-# --- 2. THE SPATIAL DRAWING ENGINE ---
+# --- 2. THE DRAWING ENGINE ---
 def draw_notebook(history, players, dealer_idx, picks):
     num_p = len(players)
     width = max(1000, num_p * 250)
@@ -82,22 +74,70 @@ def draw_notebook(history, players, dealer_idx, picks):
         y += 80
         draw.line([(20, y), (width-20, y)], fill=(255, 140, 0), width=3)
         y += 10
+        
+        # Leader Star Indicator (*)
+        max_score = max(totals.values()) if totals else 0
         for i, p in enumerate(players):
             x = (i + 0.5) * cx
-            draw.text((x, y), str(totals[p]), fill=(255, 130, 0), font=font, anchor="mt")
+            score_txt = str(totals[p])
+            if totals[p] == max_score and len(history) > 0: score_txt += " *"
+            draw.text((x, y), score_txt, fill=(255, 130, 0), font=font, anchor="mt")
         y += 100
     return img
 
-# --- 3. THE UI ---
+# --- 3. THE ARCHIVE MANAGER (SIDEBAR) ---
+st.sidebar.title("📁 Game Archive")
+
+# Upload an old archive
+uploaded_file = st.sidebar.file_uploader("Load Past Archive", type=["json"])
+if uploaded_file is not None:
+    try:
+        loaded_data = json.load(uploaded_file)
+        # Merge uploaded archive with current session archive without duplicates
+        existing_dates = [g["date"] for g in st.session_state.archive]
+        for game in loaded_data:
+            if game["date"] not in existing_dates:
+                st.session_state.archive.append(game)
+        st.sidebar.success("Archive Loaded!")
+        pack_state()
+    except: st.sidebar.error("File error.")
+
+# Display Time-Based Archive
+if st.session_state.archive:
+    # Sort games chronologically (newest first)
+    sorted_archive = sorted(st.session_state.archive, key=lambda x: x['date'], reverse=True)
+    
+    for game in sorted_archive:
+        # Time-based dropdowns
+        with st.sidebar.expander(f"🏆 {game['date']}"):
+            # Sort players in this game by score
+            sorted_scores = sorted(game['totals'].items(), key=lambda item: item[1], reverse=True)
+            for rank, (p, score) in enumerate(sorted_scores, 1):
+                star = "⭐" if rank == 1 else ""
+                st.write(f"**{rank}. {p}**: {score} {star}")
+                
+    # Download Button to save to iPhone
+    archive_json = json.dumps(st.session_state.archive, indent=2)
+    st.sidebar.download_button(
+        label="💾 Download Archive to iPhone",
+        data=archive_json,
+        file_name=f"ScoreArchive_{datetime.now().strftime('%Y%m%d')}.json",
+        mime="application/json"
+    )
+else:
+    st.sidebar.info("Completed games will appear here.")
+
+# --- 4. MAIN UI ---
 st.title("🎙️ Score Scribe Pro")
 
-if st.button("🚨 EMERGENCY RESET"):
-    if os.path.exists(SAVE_FILE): os.remove(SAVE_FILE)
-    st.query_params.clear()
-    for key in list(st.session_state.keys()): del st.session_state[key]
-    st.rerun()
+with st.expander("⚠️ SERVER SLEEP PROTECTION (Active Game Only)", expanded=False):
+    st.warning("Use this to save a game that is currently in progress.")
+    st.code(pack_state())
+    restore_code = st.text_input("Paste a code here to resume an active game:")
+    if st.button("Restore Game"):
+        if unpack_state(restore_code.strip()): st.rerun()
 
-# --- 4. THE FORM ---
+# --- 5. THE FORM & LOGIC ---
 with st.form("input_form", clear_on_submit=True):
     cmd = st.text_input("Enter Command (Names or Scores):")
     submitted = st.form_submit_button("Submit Command")
@@ -110,7 +150,7 @@ if submitted and cmd:
         for w in words:
             if w not in st.session_state.players:
                 st.session_state.players.append(w); st.session_state.picks[w] = 0
-        save_state(); st.rerun()
+        pack_state(); st.rerun()
         
     elif "winner" in raw.lower():
         st.session_state.mode = "play"
@@ -141,29 +181,38 @@ if submitted and cmd:
             st.session_state.history.append(new_r)
             st.session_state.dealer = (st.session_state.dealer + 1) % len(st.session_state.players)
             st.session_state.picks = {p: 0 for p in st.session_state.players}
-            save_state(); st.rerun()
+            pack_state(); st.rerun()
             
     elif "pick" in raw.lower():
         for p in st.session_state.players:
             if p.lower() in raw.lower():
                 st.session_state.picks[p] = min(3, st.session_state.picks.get(p, 0) + 1)
-                save_state(); st.rerun()
+                pack_state(); st.rerun()
 
-# --- 5. RENDER THE PAGE ---
+# --- 6. RENDER THE PAGE ---
 if st.session_state.players:
     if st.session_state.mode == "setup":
         if st.button("🚀 LOCK NAMES & START"):
-            st.session_state.mode = "play"; save_state(); st.rerun()
+            st.session_state.mode = "play"; pack_state(); st.rerun()
             
     if st.session_state.mode == "play":
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1: st.success(f"🎴 Dealer: {st.session_state.players[st.session_state.dealer]}")
         with col2:
             if st.button("↩️ Undo last round"):
                 if st.session_state.history:
                     st.session_state.history.pop()
                     st.session_state.dealer = (st.session_state.dealer - 1) % len(st.session_state.players)
-                    save_state(); st.rerun()
+                    pack_state(); st.rerun()
+        with col3:
+            if st.button("🏁 End Game & Archive"):
+                totals = {p: sum(r.get(p,0) for r in st.session_state.history) for p in st.session_state.players}
+                st.session_state.archive.append({
+                    "date": datetime.now().strftime("%b %d, %I:%M %p"), # E.g., Oct 24, 02:30 PM
+                    "totals": totals
+                })
+                st.session_state.update({"players": [], "history": [], "dealer": 0, "picks": {}, "mode": "setup"})
+                pack_state(); st.rerun()
     
     paper = draw_notebook(st.session_state.history, st.session_state.players, st.session_state.dealer, st.session_state.picks)
     st.image(paper, use_container_width=True)
@@ -171,22 +220,3 @@ if st.session_state.players:
     if st.session_state.history:
         st.write("### 📊 Live Totals")
         st.table([{p: sum(r.get(p,0) for r in st.session_state.history) for p in st.session_state.players}])
-        
-    # --- MANUAL BACKUP TOOL ---
-    with st.expander("💾 Manual Save / Load (Use to resume games later)"):
-        st.write("If you want to close your phone entirely and resume later, copy this code:")
-        current_code = st.query_params.get("save", "")
-        if current_code: st.code(current_code)
-        
-        st.write("Paste a code below to restore a previous game:")
-        restore_code = st.text_input("Paste Game Code:")
-        if st.button("Restore Game"):
-            if restore_code:
-                try:
-                    compressed = base64.urlsafe_b64decode(restore_code.encode())
-                    json_str = zlib.decompress(compressed).decode()
-                    d = json.loads(json_str)
-                    st.session_state.update({"players": d['p'], "history": d['h'], "dealer": d['d'], "picks": d['pk'], "mode": d['m']})
-                    save_state(); st.rerun()
-                except:
-                    st.error("Invalid Code!")
