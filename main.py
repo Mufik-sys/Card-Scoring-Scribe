@@ -91,7 +91,7 @@ def draw_notebook(history, players, dealer_idx, picks):
     return img
 
 # --- 3. MAIN UI ---
-st.title("🎙️ Score Scribe Pro (v8)")
+st.title("🎙️ Score Scribe Pro (v9)")
 
 # The Form 
 with st.form("input_form", clear_on_submit=True):
