@@ -76,7 +76,7 @@ def draw_notebook(history, players, dealer_idx, picks):
         y += 10
         
         # LEADER STAR INDICATOR (*)
-        max_score = max(totals.values()) if totals else 0
+        max_score = max(totals.values()) if totals else -9999
         for i, p in enumerate(players):
             x = (i + 0.5) * cx
             score_txt = str(totals[p])
@@ -91,9 +91,9 @@ def draw_notebook(history, players, dealer_idx, picks):
     return img
 
 # --- 3. MAIN UI ---
-st.title("🎙️ Score Scribe Pro")
+st.title("🎙️ Score Scribe Pro (v8)")
 
-# The Form (Bypasses iPhone Keyboard Bug)
+# The Form 
 with st.form("input_form", clear_on_submit=True):
     cmd = st.text_input("Enter Command (Names or Scores):")
     submitted = st.form_submit_button("Submit Command", use_container_width=True)
@@ -154,7 +154,6 @@ if st.session_state.players:
     if st.session_state.mode == "play":
         st.success(f"🎴 Current Dealer: {st.session_state.players[st.session_state.dealer]}")
         
-        # Mobile-Friendly 2-Column Buttons
         colA, colB = st.columns(2)
         with colA:
             if st.button("↩️ Undo last round", use_container_width=True):
@@ -163,7 +162,6 @@ if st.session_state.players:
                     st.session_state.dealer = (st.session_state.dealer - 1) % len(st.session_state.players)
                     pack_state(); st.rerun()
         with colB:
-            # MOVED: End Game Button is now massive and unmissable
             if st.button("🏁 End Game & Archive", type="primary", use_container_width=True):
                 totals = {p: sum(r.get(p,0) for r in st.session_state.history) for p in st.session_state.players}
                 st.session_state.archive.append({
@@ -173,7 +171,6 @@ if st.session_state.players:
                 st.session_state.update({"players": [], "history": [], "dealer": 0, "picks": {}, "mode": "setup"})
                 pack_state(); st.rerun()
     
-    # Draw Paper
     paper = draw_notebook(st.session_state.history, st.session_state.players, st.session_state.dealer, st.session_state.picks)
     st.image(paper, use_container_width=True)
     
@@ -181,13 +178,12 @@ if st.session_state.players:
         st.write("### 📊 Live Totals")
         st.table([{p: sum(r.get(p,0) for r in st.session_state.history) for p in st.session_state.players}])
 
-# --- 5. THE ARCHIVE SECTION (MOVED FROM SIDEBAR TO MAIN PAGE) ---
+# --- 5. THE ARCHIVE SECTION ---
 st.markdown("---")
 st.header("📁 Game Archive")
 
 if st.session_state.archive:
     sorted_archive = sorted(st.session_state.archive, key=lambda x: x['date'], reverse=True)
-    
     for game in sorted_archive:
         with st.expander(f"🏆 {game['date']}"):
             sorted_scores = sorted(game['totals'].items(), key=lambda item: item[1], reverse=True)
@@ -195,7 +191,6 @@ if st.session_state.archive:
                 star = "⭐" if rank == 1 else ""
                 st.write(f"**{rank}. {p}**: {score} {star}")
                 
-    # Download Button
     archive_json = json.dumps(st.session_state.archive, indent=2)
     st.download_button(
         label="💾 Download Archive to iPhone",
@@ -207,16 +202,21 @@ if st.session_state.archive:
 else:
     st.info("Finished games will appear here after you tap 'End Game & Archive'.")
 
-# Backup Loader
-with st.expander("🛠️ Load Past Archive File"):
-    uploaded_file = st.file_uploader("Upload a saved .json archive", type=["json"])
+with st.expander("⚠️ SERVER SLEEP PROTECTION & ARCHIVE LOADER"):
+    st.warning("Copy this code if you are leaving the app for more than 15 mins.")
+    st.code(pack_state())
+    restore_code = st.text_input("Paste an active game code here:")
+    if st.button("Restore Active Game"):
+        if unpack_state(restore_code.strip()): st.rerun()
+        
+    st.markdown("---")
+    uploaded_file = st.file_uploader("Upload a saved .json Archive File", type=["json"])
     if uploaded_file is not None:
         try:
             loaded_data = json.load(uploaded_file)
             existing_dates = [g["date"] for g in st.session_state.archive]
             for game in loaded_data:
-                if game["date"] not in existing_dates:
-                    st.session_state.archive.append(game)
+                if game["date"] not in existing_dates: st.session_state.archive.append(game)
             st.success("Archive Loaded! Please refresh page.")
             pack_state()
         except: st.error("File error.")
