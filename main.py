@@ -20,9 +20,7 @@ def pack_state():
 
 def unpack_state(b64_str):
     try:
-        # 1. Clean up the string
         b64_str = b64_str.strip()
-        # 2. Automatically fix missing padding from iPhone copy/paste
         b64_str += "=" * ((4 - len(b64_str) % 4) % 4)
         
         compressed = base64.urlsafe_b64decode(b64_str.encode())
@@ -95,7 +93,8 @@ def draw_notebook(history, players, dealer_idx, picks):
     return img
 
 # --- 3. MAIN UI ---
-st.title("🎙️ Score Scribe Pro (v11)")
+# Custom HTML to shrink the font size for iPhones
+st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎙️ Score Scribe Pro (v13)</h1>", unsafe_allow_html=True)
 
 if st.button("🚨 EMERGENCY RESET"):
     st.query_params.clear()
@@ -213,10 +212,12 @@ else:
     st.info("Finished games will appear here after you tap 'End Game & Archive'.")
 
 with st.expander("⚠️ SERVER SLEEP PROTECTION & ARCHIVE LOADER"):
-    st.warning("Copy this code if you are leaving the app for more than 15 mins.")
-    st.code(pack_state())
+    st.warning("Save your game if you are leaving the app for more than 15 mins.")
     
-    # NEW: Wrapped in a form to fix the iPhone paste bug
+    # iOS-Friendly Text Area
+    save_code_str = pack_state()
+    st.text_area("👇 Tap inside here, press 'Select All', then 'Copy':", value=save_code_str, height=120)
+    
     with st.form("restore_form", clear_on_submit=True):
         restore_code = st.text_input("Paste an active game code here:")
         if st.form_submit_button("Restore Active Game", use_container_width=True):
