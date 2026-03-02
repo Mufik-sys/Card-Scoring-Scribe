@@ -20,6 +20,11 @@ def pack_state():
 
 def unpack_state(b64_str):
     try:
+        # 1. Clean up the string
+        b64_str = b64_str.strip()
+        # 2. Automatically fix missing padding from iPhone copy/paste
+        b64_str += "=" * ((4 - len(b64_str) % 4) % 4)
+        
         compressed = base64.urlsafe_b64decode(b64_str.encode())
         json_str = zlib.decompress(compressed).decode()
         d = json.loads(json_str)
@@ -81,7 +86,6 @@ def draw_notebook(history, players, dealer_idx, picks):
             x = (i + 0.5) * cx
             score_txt = str(totals[p])
             
-            # If this player is the leader, add a distinct star and make it red
             if totals[p] == max_score and len(history) > 0: 
                 score_txt += " *"
                 draw.text((x, y), score_txt, fill=(230, 0, 0), font=font, anchor="mt")
@@ -91,9 +95,8 @@ def draw_notebook(history, players, dealer_idx, picks):
     return img
 
 # --- 3. MAIN UI ---
-st.title("🎙️ Score Scribe Pro (v10)")
+st.title("🎙️ Score Scribe Pro (v11)")
 
-# Reinstated Emergency Reset Button
 if st.button("🚨 EMERGENCY RESET"):
     st.query_params.clear()
     for key in list(st.session_state.keys()): 
@@ -212,9 +215,15 @@ else:
 with st.expander("⚠️ SERVER SLEEP PROTECTION & ARCHIVE LOADER"):
     st.warning("Copy this code if you are leaving the app for more than 15 mins.")
     st.code(pack_state())
-    restore_code = st.text_input("Paste an active game code here:")
-    if st.button("Restore Active Game"):
-        if unpack_state(restore_code.strip()): st.rerun()
+    
+    # NEW: Wrapped in a form to fix the iPhone paste bug
+    with st.form("restore_form", clear_on_submit=True):
+        restore_code = st.text_input("Paste an active game code here:")
+        if st.form_submit_button("Restore Active Game", use_container_width=True):
+            if unpack_state(restore_code.strip()): 
+                st.rerun()
+            else:
+                st.error("Invalid Code! Make sure you copied the whole block of text.")
         
     st.markdown("---")
     uploaded_file = st.file_uploader("Upload a saved .json Archive File", type=["json"])
