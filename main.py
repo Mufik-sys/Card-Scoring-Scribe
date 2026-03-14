@@ -132,9 +132,9 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
                 draw.text((cx * (i + 1.5), y), score_txt, fill=(255, 130, 0), font=font, anchor="mt")
         y += 100
 
-    # Live Bidding Row
+    # Live Bidding Row (Updated alignment format)
     if mode in ["bid", "actual"]:
-        label = "Bids" if mode == "bid" else "Bids (Locked)"
+        label = "Bids"
         color = (150, 150, 150) if mode == "bid" else (220, 100, 100)
         draw.text((cx * 0.5, y), label, fill=color, font=font, anchor="mt")
         for i, p in enumerate(players):
@@ -147,7 +147,7 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
 # ==========================================
 
 if st.session_state.active_game is None:
-    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v18)</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v19)</h1>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🎴 Grand Fan Pro", use_container_width=True, type="primary"):
@@ -237,7 +237,7 @@ elif st.session_state.active_game == "Judgement":
             st.session_state.update({"j_players": [], "j_history": [], "j_dealer": 0, "j_bids": {}, "j_mode": "setup"})
             pack_state(); st.rerun()
 
-    bids = {} # Keep track of live bids
+    bids = {}
     
     # PHASE 1: SETUP
     if st.session_state.j_mode == "setup":
@@ -286,13 +286,16 @@ elif st.session_state.active_game == "Judgement":
         c1.markdown("### TOTAL HANDS:")
         c2.markdown(f"### {sum(actuals.values())}") 
         
+        double_round = st.checkbox("🔥 Double Score Round (2x Points)")
+        
         if st.button("🧮 Calculate & Save Round", use_container_width=True, type="primary"):
             new_r = {}
+            multiplier = 2 if double_round else 1
             for p in st.session_state.j_players:
                 bid = st.session_state.j_bids.get(p, 0)
                 act = actuals[p]
-                if bid == act: new_r[p] = 10 if bid == 0 else bid * 10
-                else: new_r[p] = -10 if bid == 0 else bid * -10
+                if bid == act: new_r[p] = (10 if bid == 0 else bid * 10) * multiplier
+                else: new_r[p] = (-10 if bid == 0 else bid * -10) * multiplier
             st.session_state.j_history.append(new_r)
             st.session_state.j_dealer = (st.session_state.j_dealer + 1) % len(st.session_state.j_players)
             st.session_state.j_mode = "bid"
@@ -316,11 +319,21 @@ elif st.session_state.active_game == "Judgement":
                 st.session_state.update({"j_players": [], "j_history": [], "j_dealer": 0, "j_bids": {}, "j_mode": "setup"})
                 pack_state(); st.rerun()
                 
-        # Determine which bids to show on paper
         current_drawing_bids = bids if st.session_state.j_mode == "bid" else st.session_state.j_bids
         paper = draw_judgement_notebook(st.session_state.j_history, st.session_state.j_players, st.session_state.j_dealer, current_drawing_bids, st.session_state.j_mode)
         st.image(paper, use_container_width=True)
 
+        # ✏️ MANUAL SCORE EDITOR
+        if st.session_state.j_history:
+            with st.expander("✏️ Edit Last Round's Scores"):
+                st.write("Manually override the points awarded in the most recent round.")
+                c1, c2, c3 = st.columns([2, 2, 2])
+                edit_p = c1.selectbox("Player", st.session_state.j_players, label_visibility="collapsed")
+                current_val = st.session_state.j_history[-1].get(edit_p, 0)
+                new_val = c2.number_input("New Points", value=current_val, step=10, label_visibility="collapsed")
+                if c3.button("Update Score", use_container_width=True):
+                    st.session_state.j_history[-1][edit_p] = new_val
+                    pack_state(); st.rerun()
 
 # ==========================================
 # --- 4. GLOBAL ARCHIVE & BACKUP ---
