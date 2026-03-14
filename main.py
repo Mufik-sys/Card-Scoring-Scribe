@@ -98,7 +98,7 @@ def draw_notebook(history, players, dealer_idx, picks):
 
 if st.session_state.active_game is None:
     # --- MAIN MENU ---
-    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v15)</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v16)</h1>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -119,12 +119,11 @@ elif st.session_state.active_game == "Grand Fan":
     col_back, col_reset = st.columns(2)
     with col_back:
         if st.button("⬅️ Back to Menu", use_container_width=True):
-            st.session_state.active_game = None # Leaves the game running in background!
+            st.session_state.active_game = None 
             pack_state()
             st.rerun()
     with col_reset:
         if st.button("🚨 Wipe Board", use_container_width=True):
-            # Clears active game data, but leaves the archive perfectly safe
             st.session_state.update({"players": [], "history": [], "dealer": 0, "picks": {}, "mode": "setup"})
             pack_state()
             st.rerun()
@@ -201,7 +200,6 @@ elif st.session_state.active_game == "Grand Fan":
                         "date": datetime.now().strftime("%b %d, %I:%M %p"),
                         "totals": totals
                     })
-                    # Wipe the board but leave the user on the Grand Fan screen
                     st.session_state.update({"players": [], "history": [], "dealer": 0, "picks": {}, "mode": "setup"})
                     pack_state(); st.rerun()
         
@@ -223,7 +221,7 @@ elif st.session_state.active_game == "Judgement":
 
 
 # ==========================================
-# --- 4. GLOBAL ARCHIVE & BACKUP (ALWAYS VISIBLE) ---
+# --- 4. GLOBAL ARCHIVE & BACKUP ---
 # ==========================================
 
 st.markdown("---")
@@ -268,10 +266,21 @@ with st.expander("⚠️ SERVER SLEEP PROTECTION & ARCHIVE LOADER"):
     uploaded_file = st.file_uploader("Upload a saved .json Archive File", type=["json"])
     if uploaded_file is not None:
         try:
-            loaded_data = json.load(uploaded_file)
+            # Bug Fix: Explicitly decode the bytes into text first
+            file_content = uploaded_file.getvalue().decode("utf-8")
+            loaded_data = json.loads(file_content)
+            
             existing_dates = [g.get("date") for g in st.session_state.archive]
+            added_new = False
             for game in loaded_data:
-                if game.get("date") not in existing_dates: st.session_state.archive.append(game)
-            st.success("Archive Loaded! Please refresh page.")
-            pack_state()
-        except: st.error("File error.")
+                if game.get("date") not in existing_dates: 
+                    st.session_state.archive.append(game)
+                    added_new = True
+            
+            # Bug Fix: Force an instant screen refresh if a new game was added
+            if added_new:
+                pack_state()
+                st.rerun()
+                
+        except Exception as e: 
+            st.error("There was an issue reading this file.")
