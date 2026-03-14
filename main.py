@@ -92,10 +92,10 @@ def draw_notebook(history, players, dealer_idx, picks):
         y += 100
     return img
 
-# Engine B: Judgement (Grid Layout with 'Rd' Column)
+# Engine B: Judgement (Grid Layout with 'Rd' Column and Suits)
 def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
     num_p = len(players)
-    width = max(1000, (num_p + 1) * 230) # +1 space for 'Rd' column
+    width = max(1000, (num_p + 1) * 230)
     height = max(800, 400 + (len(history) * 200) + (150 if mode in ['bid', 'actual'] else 0))
     img = Image.new('RGB', (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(img)
@@ -113,9 +113,15 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
 
     y = 280
     totals = {p: 0 for p in players}
+    suit_pattern = ['S', 'H', 'D', 'C', 'NT']
+    
     # History
     for r_idx, r_sc in enumerate(history, 1):
-        draw.text((cx * 0.5, y), str(r_idx), fill=(160, 160, 160), font=font, anchor="mt")
+        # Apply the repeating suit pattern based on round index
+        suit_suffix = suit_pattern[(r_idx - 1) % 5]
+        rd_label = f"{r_idx}{suit_suffix}"
+        
+        draw.text((cx * 0.5, y), rd_label, fill=(160, 160, 160), font=font, anchor="mt")
         for i, p in enumerate(players):
             val = r_sc.get(p, 0); totals[p] += val
             draw.text((cx * (i + 1.5), y), str(val), fill=(50, 50, 50), font=font, anchor="mt")
@@ -132,7 +138,7 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
                 draw.text((cx * (i + 1.5), y), score_txt, fill=(255, 130, 0), font=font, anchor="mt")
         y += 100
 
-    # Live Bidding Row (Updated alignment format)
+    # Live Bidding Row
     if mode in ["bid", "actual"]:
         label = "Bids"
         color = (150, 150, 150) if mode == "bid" else (220, 100, 100)
@@ -147,7 +153,7 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
 # ==========================================
 
 if st.session_state.active_game is None:
-    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v19)</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v20)</h1>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🎴 Grand Fan Pro", use_container_width=True, type="primary"):
