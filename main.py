@@ -44,7 +44,7 @@ if 'active_game' not in st.session_state:
             "picks": {}, "mode": "setup", "archive": []
         })
 
-# --- 2. DRAWING ENGINE (For Grand Fan) ---
+# --- 2. THE DRAWING ENGINE (Grand Fan) ---
 def draw_notebook(history, players, dealer_idx, picks):
     num_p = len(players)
     width = max(1000, num_p * 250)
@@ -92,49 +92,42 @@ def draw_notebook(history, players, dealer_idx, picks):
         y += 100
     return img
 
-# --- 3. MAIN MENU ---
+# ==========================================
+# --- 3. PAGE ROUTING & TOP UI ---
+# ==========================================
+
 if st.session_state.active_game is None:
-    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v14)</h1>", unsafe_allow_html=True)
-    st.write("Choose a game to start scoring:")
+    # --- MAIN MENU ---
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v15)</h1>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🎴 Grand Fan Pro", use_container_width=True, type="primary"):
             st.session_state.active_game = "Grand Fan"
+            pack_state()
             st.rerun()
     with col2:
         if st.button("⚖️ Judgement", use_container_width=True, type="primary"):
             st.session_state.active_game = "Judgement"
+            pack_state()
             st.rerun()
-            
-    st.markdown("---")
-    with st.expander("🛠️ Load Past Archive File or Resume Game"):
-        # The URL restore logic
-        with st.form("restore_form_menu", clear_on_submit=True):
-            restore_code = st.text_input("Paste an active game code here to resume:")
-            if st.form_submit_button("Restore Active Game", use_container_width=True):
-                if unpack_state(restore_code.strip()): st.rerun()
-                else: st.error("Invalid Code!")
-        # File uploader
-        uploaded_file = st.file_uploader("Upload a saved .json Archive File", type=["json"])
-        if uploaded_file is not None:
-            try:
-                loaded_data = json.load(uploaded_file)
-                existing_dates = [g["date"] for g in st.session_state.archive]
-                for game in loaded_data:
-                    if game["date"] not in existing_dates: st.session_state.archive.append(game)
-                st.success("Archive Loaded! Select a game above to view it.")
-                pack_state()
-            except: st.error("File error.")
 
-# --- 4. GRAND FAN PRO ---
 elif st.session_state.active_game == "Grand Fan":
+    # --- GRAND FAN PRO ---
     st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎴 Grand Fan Pro</h1>", unsafe_allow_html=True)
 
-    if st.button("⬅️ Back to Menu / Reset"):
-        st.query_params.clear()
-        for key in list(st.session_state.keys()): del st.session_state[key]
-        st.rerun()
+    col_back, col_reset = st.columns(2)
+    with col_back:
+        if st.button("⬅️ Back to Menu", use_container_width=True):
+            st.session_state.active_game = None # Leaves the game running in background!
+            pack_state()
+            st.rerun()
+    with col_reset:
+        if st.button("🚨 Wipe Board", use_container_width=True):
+            # Clears active game data, but leaves the archive perfectly safe
+            st.session_state.update({"players": [], "history": [], "dealer": 0, "picks": {}, "mode": "setup"})
+            pack_state()
+            st.rerun()
 
     with st.form("input_form", clear_on_submit=True):
         cmd = st.text_input("Enter Command (Names or Scores):")
@@ -208,6 +201,7 @@ elif st.session_state.active_game == "Grand Fan":
                         "date": datetime.now().strftime("%b %d, %I:%M %p"),
                         "totals": totals
                     })
+                    # Wipe the board but leave the user on the Grand Fan screen
                     st.session_state.update({"players": [], "history": [], "dealer": 0, "picks": {}, "mode": "setup"})
                     pack_state(); st.rerun()
         
@@ -218,40 +212,66 @@ elif st.session_state.active_game == "Grand Fan":
             st.write("### 📊 Live Totals")
             st.table([{p: sum(r.get(p,0) for r in st.session_state.history) for p in st.session_state.players}])
 
-    st.markdown("---")
-    st.header("📁 Game Archive")
-    if st.session_state.archive:
-        sorted_archive = sorted(st.session_state.archive, key=lambda x: x.get('date', ''), reverse=True)
-        for game in sorted_archive:
-            game_type = game.get('game_type', 'Grand Fan')
-            with st.expander(f"🏆 {game_type} - {game['date']}"):
-                sorted_scores = sorted(game['totals'].items(), key=lambda item: item[1], reverse=True)
-                for rank, (p, score) in enumerate(sorted_scores, 1):
-                    star = "⭐" if rank == 1 else ""
-                    st.write(f"**{rank}. {p}**: {score} {star}")
-                    
-        archive_json = json.dumps(st.session_state.archive, indent=2)
-        st.download_button(
-            label="💾 Download Archive to iPhone",
-            data=archive_json,
-            file_name=f"ScoreArchive_{datetime.now().strftime('%Y%m%d')}.json",
-            mime="application/json",
-            use_container_width=True
-        )
-    else:
-        st.info("Finished games will appear here.")
-
-    with st.expander("⚠️ SERVER SLEEP PROTECTION"):
-        st.warning("Save your game if taking a break.")
-        save_code_str = pack_state()
-        st.text_area("👇 Tap inside here, press 'Select All', then 'Copy':", value=save_code_str, height=120)
-
-# --- 5. JUDGEMENT ---
 elif st.session_state.active_game == "Judgement":
+    # --- JUDGEMENT ---
     st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>⚖️ Judgement</h1>", unsafe_allow_html=True)
-    
     if st.button("⬅️ Back to Menu"):
         st.session_state.active_game = None
+        pack_state()
         st.rerun()
-        
     st.info("Ready to build! Tell me how the input and scoring mechanism should work for Judgement.")
+
+
+# ==========================================
+# --- 4. GLOBAL ARCHIVE & BACKUP (ALWAYS VISIBLE) ---
+# ==========================================
+
+st.markdown("---")
+st.header("📁 Global Game Archive")
+
+if st.session_state.archive:
+    sorted_archive = sorted(st.session_state.archive, key=lambda x: x.get('date', ''), reverse=True)
+    for game in sorted_archive:
+        game_type = game.get('game_type', 'Grand Fan')
+        with st.expander(f"🏆 {game_type} - {game.get('date', '')}"):
+            sorted_scores = sorted(game['totals'].items(), key=lambda item: item[1], reverse=True)
+            for rank, (p, score) in enumerate(sorted_scores, 1):
+                star = "⭐" if rank == 1 else ""
+                st.write(f"**{rank}. {p}**: {score} {star}")
+                
+    archive_json = json.dumps(st.session_state.archive, indent=2)
+    st.download_button(
+        label="💾 Download Archive to iPhone",
+        data=archive_json,
+        file_name=f"ScoreArchive_{datetime.now().strftime('%Y%m%d')}.json",
+        mime="application/json",
+        use_container_width=True
+    )
+else:
+    st.info("Finished games will appear here.")
+
+with st.expander("⚠️ SERVER SLEEP PROTECTION & ARCHIVE LOADER"):
+    st.warning("Save your game if taking a break.")
+    
+    save_code_str = pack_state()
+    st.text_area("👇 Tap inside here, press 'Select All', then 'Copy':", value=save_code_str, height=120)
+    
+    with st.form("restore_form", clear_on_submit=True):
+        restore_code = st.text_input("Paste an active game code here:")
+        if st.form_submit_button("Restore Active Game", use_container_width=True):
+            if unpack_state(restore_code.strip()): 
+                st.rerun()
+            else:
+                st.error("Invalid Code! Make sure you copied the whole block of text.")
+        
+    st.markdown("---")
+    uploaded_file = st.file_uploader("Upload a saved .json Archive File", type=["json"])
+    if uploaded_file is not None:
+        try:
+            loaded_data = json.load(uploaded_file)
+            existing_dates = [g.get("date") for g in st.session_state.archive]
+            for game in loaded_data:
+                if game.get("date") not in existing_dates: st.session_state.archive.append(game)
+            st.success("Archive Loaded! Please refresh page.")
+            pack_state()
+        except: st.error("File error.")
