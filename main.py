@@ -1,7 +1,7 @@
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 import re, json, zlib, base64
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- 1. SETUP ---
 st.set_page_config(page_title="Game Hub Pro", layout="wide")
@@ -14,7 +14,7 @@ def pack_state():
         "m": st.session_state.mode, "a": st.session_state.archive,
         "jp": st.session_state.j_players, "jh": st.session_state.j_history,
         "jd": st.session_state.j_dealer, "jb": st.session_state.j_bids,
-        "jm": st.session_state.j_mode
+        "jm": st.session_state.j_mode, "tz": st.session_state.tz_offset
     }
     json_str = json.dumps(data)
     compressed = zlib.compress(json_str.encode())
@@ -34,7 +34,7 @@ def unpack_state(b64_str):
             "players": d.get('p', []), "history": d.get('h', []), "dealer": d.get('d', 0), 
             "picks": d.get('pk', {}), "mode": d.get('m', 'setup'), "archive": d.get('a', []),
             "j_players": d.get('jp', []), "j_history": d.get('jh', []), "j_dealer": d.get('jd', 0),
-            "j_bids": d.get('jb', {}), "j_mode": d.get('jm', 'setup')
+            "j_bids": d.get('jb', {}), "j_mode": d.get('jm', 'setup'), "tz_offset": d.get('tz', 0)
         })
         return True
     except: return False
@@ -46,12 +46,13 @@ if 'active_game' not in st.session_state:
         st.session_state.update({
             "active_game": None, "players": [], "history": [], "dealer": 0, 
             "picks": {}, "mode": "setup", "archive": [],
-            "j_players": [], "j_history": [], "j_dealer": 0, "j_bids": {}, "j_mode": "setup"
+            "j_players": [], "j_history": [], "j_dealer": 0, "j_bids": {}, "j_mode": "setup",
+            "tz_offset": 0
         })
 
 # --- 2. DRAWING ENGINES ---
 
-# Engine A: Grand Fan (Standard Layout)
+# Engine A: Grand Fan (Standard Layout with Dark Blue Tally Marks)
 def draw_notebook(history, players, dealer_idx, picks):
     num_p = len(players)
     width = max(1000, num_p * 250)
@@ -65,7 +66,8 @@ def draw_notebook(history, players, dealer_idx, picks):
     for i, p in enumerate(players):
         x = (i + 0.5) * cx
         tk = picks.get(p, 0)
-        if tk > 0: draw.text((x, 60), "|" * tk, fill=(230, 0, 0), font=font, anchor="mt")
+        # Draw the tally marks above the name in dark blue pen color
+        if tk > 0: draw.text((x, 90), "|" * tk, fill=(40, 40, 100), font=font, anchor="mt")
         disp = p.capitalize()
         if i == dealer_idx: disp += " (D)"
         draw.text((x, 150), disp, fill=(40, 40, 100), font=font, anchor="mt")
@@ -117,7 +119,6 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
     
     # History
     for r_idx, r_sc in enumerate(history, 1):
-        # Apply the repeating suit pattern based on round index
         suit_suffix = suit_pattern[(r_idx - 1) % 5]
         rd_label = f"{r_idx}{suit_suffix}"
         
@@ -154,7 +155,7 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
 # ==========================================
 
 if st.session_state.active_game is None:
-    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v21)</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v23)</h1>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🎴 Grand Fan Pro", use_container_width=True, type="primary"):
@@ -206,11 +207,15 @@ elif st.session_state.active_game == "Grand Fan":
                 new_r[winner_name] = pot
                 st.session_state.history.append(new_r)
                 st.session_state.dealer = (st.session_state.dealer + 1) % len(st.session_state.players)
+                # Resets the Tally Picks cleanly after every round
                 st.session_state.picks = {p: 0 for p in st.session_state.players}
                 pack_state(); st.rerun()
         elif "pick" in raw.lower():
             for p in st.session_state.players:
-                if p.lower() in raw.lower(): st.session_state.picks[p] = min(3, st.session_state.picks.get(p, 0) + 1); pack_state(); st.rerun()
+                if p.lower() in raw.lower(): 
+                    # Caps the pick counter at a maximum of 3 tallies
+                    st.session_state.picks[p] = min(3, st.session_state.picks.get(p, 0) + 1)
+            pack_state(); st.rerun()
 
     if st.session_state.players:
         if st.session_state.mode == "setup":
@@ -227,7 +232,8 @@ elif st.session_state.active_game == "Grand Fan":
             with colB:
                 if st.button("🏁 End Game & Archive", type="primary", use_container_width=True):
                     totals = {p: sum(r.get(p,0) for r in st.session_state.history) for p in st.session_state.players}
-                    st.session_state.archive.append({"game_type": "Grand Fan", "date": datetime.now().strftime("%b %d, %I:%M %p"), "totals": totals})
+                    local_time = datetime.utcnow() + timedelta(hours=st.session_state.tz_offset)
+                    st.session_state.archive.append({"game_type": "Grand Fan", "date": local_time.strftime("%b %d, %I:%M %p"), "totals": totals})
                     st.session_state.update({"players": [], "history": [], "dealer": 0, "picks": {}, "mode": "setup"})
                     pack_state(); st.rerun()
         
@@ -322,7 +328,8 @@ elif st.session_state.active_game == "Judgement":
         with colB:
             if st.button("🏁 End Game & Archive", type="primary", use_container_width=True):
                 totals = {p: sum(r.get(p,0) for r in st.session_state.j_history) for p in st.session_state.j_players}
-                st.session_state.archive.append({"game_type": "Judgement", "date": datetime.now().strftime("%b %d, %I:%M %p"), "totals": totals})
+                local_time = datetime.utcnow() + timedelta(hours=st.session_state.tz_offset)
+                st.session_state.archive.append({"game_type": "Judgement", "date": local_time.strftime("%b %d, %I:%M %p"), "totals": totals})
                 st.session_state.update({"j_players": [], "j_history": [], "j_dealer": 0, "j_bids": {}, "j_mode": "setup"})
                 pack_state(); st.rerun()
                 
@@ -347,7 +354,13 @@ elif st.session_state.active_game == "Judgement":
 # ==========================================
 
 st.markdown("---")
-st.header("📁 Global Game Archive")
+
+col_arch1, col_arch2 = st.columns([2, 1])
+with col_arch1:
+    st.header("📁 Global Game Archive")
+with col_arch2:
+    # ⏱️ TIMEZONE OFFSET SELECTOR
+    st.session_state.tz_offset = st.number_input("GMT Offset (Hrs)", value=st.session_state.get('tz_offset', 0), step=1, help="Set your local timezone hours ahead or behind GMT (e.g., +4).")
 
 if st.session_state.archive:
     sorted_archive = sorted(st.session_state.archive, key=lambda x: x.get('date', ''), reverse=True)
