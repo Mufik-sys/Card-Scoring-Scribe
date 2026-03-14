@@ -52,39 +52,49 @@ if 'active_game' not in st.session_state:
 
 # --- 2. DRAWING ENGINES ---
 
-# Engine A: Grand Fan (Standard Layout with Dark Blue Tally Marks)
+# Engine A: Grand Fan (Standard Layout with Left Margin Fix & Tally Marks)
 def draw_notebook(history, players, dealer_idx, picks):
     num_p = len(players)
-    width = max(1000, num_p * 250)
+    left_margin = 150  # Dedicated space for Round numbers
+    width = max(1000, left_margin + (num_p * 230))
     height = max(800, 400 + (len(history) * 200))
     img = Image.new('RGB', (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(img)
-    for y in range(80, height, 80): draw.line([(0, y), (width, y)], fill=(220, 230, 245), width=2)
+    
+    for y in range(80, height, 80): 
+        draw.line([(0, y), (width, y)], fill=(220, 230, 245), width=2)
+        
     try: font = ImageFont.truetype("Caveat-Regular.ttf", 75)
     except: font = ImageFont.load_default()
-    cx = width / num_p
+    
+    cx = (width - left_margin) / num_p
     for i, p in enumerate(players):
-        x = (i + 0.5) * cx
+        x = left_margin + (i + 0.5) * cx
         tk = picks.get(p, 0)
         # Draw the tally marks above the name in dark blue pen color
         if tk > 0: draw.text((x, 90), "|" * tk, fill=(40, 40, 100), font=font, anchor="mt")
         disp = p.capitalize()
         if i == dealer_idx: disp += " (D)"
         draw.text((x, 150), disp, fill=(40, 40, 100), font=font, anchor="mt")
+        
     y = 280
     totals = {p: 0 for p in players}
     for r_idx, r_sc in enumerate(history, 1):
-        draw.text((40, y), str(r_idx), fill=(160, 160, 160), font=font, anchor="mt")
+        # Round number stays safely in the left margin
+        draw.text((left_margin / 2, y), str(r_idx), fill=(160, 160, 160), font=font, anchor="mt")
+        
         for i, p in enumerate(players):
-            x = (i + 0.5) * cx
+            x = left_margin + (i + 0.5) * cx
             val = r_sc.get(p, 0); totals[p] += val
             draw.text((x, y), str(val), fill=(50, 50, 50), font=font, anchor="mt")
+            
         y += 80
         draw.line([(20, y), (width-20, y)], fill=(255, 140, 0), width=3)
         y += 10
+        
         max_score = max(totals.values()) if totals else -9999
         for i, p in enumerate(players):
-            x = (i + 0.5) * cx
+            x = left_margin + (i + 0.5) * cx
             score_txt = str(totals[p])
             if totals[p] == max_score and len(history) > 0: 
                 score_txt += " *"
@@ -155,7 +165,7 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
 # ==========================================
 
 if st.session_state.active_game is None:
-    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v23)</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v24)</h1>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🎴 Grand Fan Pro", use_container_width=True, type="primary"):
@@ -207,13 +217,11 @@ elif st.session_state.active_game == "Grand Fan":
                 new_r[winner_name] = pot
                 st.session_state.history.append(new_r)
                 st.session_state.dealer = (st.session_state.dealer + 1) % len(st.session_state.players)
-                # Resets the Tally Picks cleanly after every round
                 st.session_state.picks = {p: 0 for p in st.session_state.players}
                 pack_state(); st.rerun()
         elif "pick" in raw.lower():
             for p in st.session_state.players:
                 if p.lower() in raw.lower(): 
-                    # Caps the pick counter at a maximum of 3 tallies
                     st.session_state.picks[p] = min(3, st.session_state.picks.get(p, 0) + 1)
             pack_state(); st.rerun()
 
