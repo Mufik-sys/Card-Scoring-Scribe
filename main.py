@@ -4,10 +4,11 @@ import re, json, zlib, base64
 from datetime import datetime
 
 # --- 1. SETUP ---
-st.set_page_config(page_title="Score Scribe Pro", layout="wide")
+st.set_page_config(page_title="Game Hub Pro", layout="wide")
 
 def pack_state():
     data = {
+        "ag": st.session_state.active_game,
         "p": st.session_state.players, "h": st.session_state.history,
         "d": st.session_state.dealer, "pk": st.session_state.picks,
         "m": st.session_state.mode, "a": st.session_state.archive
@@ -27,22 +28,23 @@ def unpack_state(b64_str):
         json_str = zlib.decompress(compressed).decode()
         d = json.loads(json_str)
         st.session_state.update({
-            "players": d['p'], "history": d['h'], "dealer": d['d'], 
-            "picks": d['pk'], "mode": d['m'], "archive": d.get('a', [])
+            "active_game": d.get('ag'),
+            "players": d.get('p', []), "history": d.get('h', []), "dealer": d.get('d', 0), 
+            "picks": d.get('pk', {}), "mode": d.get('m', 'setup'), "archive": d.get('a', [])
         })
         return True
     except: return False
 
-if 'players' not in st.session_state:
+if 'active_game' not in st.session_state:
     loaded = False
     if "save" in st.query_params: loaded = unpack_state(st.query_params["save"])
     if not loaded:
         st.session_state.update({
-            "players": [], "history": [], "dealer": 0, 
+            "active_game": None, "players": [], "history": [], "dealer": 0, 
             "picks": {}, "mode": "setup", "archive": []
         })
 
-# --- 2. THE DRAWING ENGINE ---
+# --- 2. DRAWING ENGINE (For Grand Fan) ---
 def draw_notebook(history, players, dealer_idx, picks):
     num_p = len(players)
     width = max(1000, num_p * 250)
@@ -78,12 +80,10 @@ def draw_notebook(history, players, dealer_idx, picks):
         draw.line([(20, y), (width-20, y)], fill=(255, 140, 0), width=3)
         y += 10
         
-        # LEADER STAR INDICATOR (*)
         max_score = max(totals.values()) if totals else -9999
         for i, p in enumerate(players):
             x = (i + 0.5) * cx
             score_txt = str(totals[p])
-            
             if totals[p] == max_score and len(history) > 0: 
                 score_txt += " *"
                 draw.text((x, y), score_txt, fill=(230, 0, 0), font=font, anchor="mt")
@@ -92,148 +92,166 @@ def draw_notebook(history, players, dealer_idx, picks):
         y += 100
     return img
 
-# --- 3. MAIN UI ---
-# Custom HTML to shrink the font size for iPhones
-st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎙️ Score Scribe Pro (v13)</h1>", unsafe_allow_html=True)
-
-if st.button("🚨 EMERGENCY RESET"):
-    st.query_params.clear()
-    for key in list(st.session_state.keys()): 
-        del st.session_state[key]
-    st.rerun()
-
-# The Form 
-with st.form("input_form", clear_on_submit=True):
-    cmd = st.text_input("Enter Command (Names or Scores):")
-    submitted = st.form_submit_button("Submit Command", use_container_width=True)
-
-if submitted and cmd:
-    raw = cmd.strip()
+# --- 3. MAIN MENU ---
+if st.session_state.active_game is None:
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v14)</h1>", unsafe_allow_html=True)
+    st.write("Choose a game to start scoring:")
     
-    if st.session_state.mode == "setup" and "winner" not in raw.lower():
-        words = [w.strip(",").capitalize() for w in raw.split() if not w.isdigit() and w.lower() != "and"]
-        for w in words:
-            if w not in st.session_state.players:
-                st.session_state.players.append(w); st.session_state.picks[w] = 0
-        pack_state(); st.rerun()
-        
-    elif "winner" in raw.lower():
-        st.session_state.mode = "play"
-        nums = [int(n) for n in re.findall(r'\d+', raw)]
-        win_match = re.search(r'winner\s+([a-zA-Z]+)', raw, re.IGNORECASE)
-        
-        winner_name = None
-        if win_match:
-            w_str = win_match.group(1).lower()
-            for p in st.session_state.players:
-                if w_str in p.lower() or p.lower() in w_str:
-                    winner_name = p; break
-                    
-        if winner_name and nums:
-            losers = []
-            for word in raw.split():
-                for p in st.session_state.players:
-                    if p != winner_name and (p.lower() in word.lower() or word.lower() in p.lower()):
-                        if p not in losers: losers.append(p)
-                        
-            new_r = {p: 0 for p in st.session_state.players}
-            pot = 0
-            for i, loser in enumerate(losers):
-                if i < len(nums):
-                    new_r[loser] = -nums[i]; pot += nums[i]
-                    
-            new_r[winner_name] = pot
-            st.session_state.history.append(new_r)
-            st.session_state.dealer = (st.session_state.dealer + 1) % len(st.session_state.players)
-            st.session_state.picks = {p: 0 for p in st.session_state.players}
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🎴 Grand Fan Pro", use_container_width=True, type="primary"):
+            st.session_state.active_game = "Grand Fan"
+            st.rerun()
+    with col2:
+        if st.button("⚖️ Judgement", use_container_width=True, type="primary"):
+            st.session_state.active_game = "Judgement"
+            st.rerun()
+            
+    st.markdown("---")
+    with st.expander("🛠️ Load Past Archive File or Resume Game"):
+        # The URL restore logic
+        with st.form("restore_form_menu", clear_on_submit=True):
+            restore_code = st.text_input("Paste an active game code here to resume:")
+            if st.form_submit_button("Restore Active Game", use_container_width=True):
+                if unpack_state(restore_code.strip()): st.rerun()
+                else: st.error("Invalid Code!")
+        # File uploader
+        uploaded_file = st.file_uploader("Upload a saved .json Archive File", type=["json"])
+        if uploaded_file is not None:
+            try:
+                loaded_data = json.load(uploaded_file)
+                existing_dates = [g["date"] for g in st.session_state.archive]
+                for game in loaded_data:
+                    if game["date"] not in existing_dates: st.session_state.archive.append(game)
+                st.success("Archive Loaded! Select a game above to view it.")
+                pack_state()
+            except: st.error("File error.")
+
+# --- 4. GRAND FAN PRO ---
+elif st.session_state.active_game == "Grand Fan":
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎴 Grand Fan Pro</h1>", unsafe_allow_html=True)
+
+    if st.button("⬅️ Back to Menu / Reset"):
+        st.query_params.clear()
+        for key in list(st.session_state.keys()): del st.session_state[key]
+        st.rerun()
+
+    with st.form("input_form", clear_on_submit=True):
+        cmd = st.text_input("Enter Command (Names or Scores):")
+        submitted = st.form_submit_button("Submit Command", use_container_width=True)
+
+    if submitted and cmd:
+        raw = cmd.strip()
+        if st.session_state.mode == "setup" and "winner" not in raw.lower():
+            words = [w.strip(",").capitalize() for w in raw.split() if not w.isdigit() and w.lower() != "and"]
+            for w in words:
+                if w not in st.session_state.players:
+                    st.session_state.players.append(w); st.session_state.picks[w] = 0
             pack_state(); st.rerun()
             
-    elif "pick" in raw.lower():
-        for p in st.session_state.players:
-            if p.lower() in raw.lower():
-                st.session_state.picks[p] = min(3, st.session_state.picks.get(p, 0) + 1)
-                pack_state(); st.rerun()
-
-# --- 4. RENDER THE GAME BOARD ---
-if st.session_state.players:
-    if st.session_state.mode == "setup":
-        if st.button("🚀 LOCK NAMES & START", use_container_width=True):
-            st.session_state.mode = "play"; pack_state(); st.rerun()
+        elif "winner" in raw.lower():
+            st.session_state.mode = "play"
+            nums = [int(n) for n in re.findall(r'\d+', raw)]
+            win_match = re.search(r'winner\s+([a-zA-Z]+)', raw, re.IGNORECASE)
             
-    if st.session_state.mode == "play":
-        st.success(f"🎴 Current Dealer: {st.session_state.players[st.session_state.dealer]}")
-        
-        colA, colB = st.columns(2)
-        with colA:
-            if st.button("↩️ Undo last round", use_container_width=True):
-                if st.session_state.history:
-                    st.session_state.history.pop()
-                    st.session_state.dealer = (st.session_state.dealer - 1) % len(st.session_state.players)
-                    pack_state(); st.rerun()
-        with colB:
-            if st.button("🏁 End Game & Archive", type="primary", use_container_width=True):
-                totals = {p: sum(r.get(p,0) for r in st.session_state.history) for p in st.session_state.players}
-                st.session_state.archive.append({
-                    "date": datetime.now().strftime("%b %d, %I:%M %p"),
-                    "totals": totals
-                })
-                st.session_state.update({"players": [], "history": [], "dealer": 0, "picks": {}, "mode": "setup"})
+            winner_name = None
+            if win_match:
+                w_str = win_match.group(1).lower()
+                for p in st.session_state.players:
+                    if w_str in p.lower() or p.lower() in w_str:
+                        winner_name = p; break
+                        
+            if winner_name and nums:
+                losers = []
+                for word in raw.split():
+                    for p in st.session_state.players:
+                        if p != winner_name and (p.lower() in word.lower() or word.lower() in p.lower()):
+                            if p not in losers: losers.append(p)
+                            
+                new_r = {p: 0 for p in st.session_state.players}
+                pot = 0
+                for i, loser in enumerate(losers):
+                    if i < len(nums):
+                        new_r[loser] = -nums[i]; pot += nums[i]
+                        
+                new_r[winner_name] = pot
+                st.session_state.history.append(new_r)
+                st.session_state.dealer = (st.session_state.dealer + 1) % len(st.session_state.players)
+                st.session_state.picks = {p: 0 for p in st.session_state.players}
                 pack_state(); st.rerun()
-    
-    paper = draw_notebook(st.session_state.history, st.session_state.players, st.session_state.dealer, st.session_state.picks)
-    st.image(paper, use_container_width=True)
-    
-    if st.session_state.history:
-        st.write("### 📊 Live Totals")
-        st.table([{p: sum(r.get(p,0) for r in st.session_state.history) for p in st.session_state.players}])
-
-# --- 5. THE ARCHIVE SECTION ---
-st.markdown("---")
-st.header("📁 Game Archive")
-
-if st.session_state.archive:
-    sorted_archive = sorted(st.session_state.archive, key=lambda x: x['date'], reverse=True)
-    for game in sorted_archive:
-        with st.expander(f"🏆 {game['date']}"):
-            sorted_scores = sorted(game['totals'].items(), key=lambda item: item[1], reverse=True)
-            for rank, (p, score) in enumerate(sorted_scores, 1):
-                star = "⭐" if rank == 1 else ""
-                st.write(f"**{rank}. {p}**: {score} {star}")
                 
-    archive_json = json.dumps(st.session_state.archive, indent=2)
-    st.download_button(
-        label="💾 Download Archive to iPhone",
-        data=archive_json,
-        file_name=f"ScoreArchive_{datetime.now().strftime('%Y%m%d')}.json",
-        mime="application/json",
-        use_container_width=True
-    )
-else:
-    st.info("Finished games will appear here after you tap 'End Game & Archive'.")
+        elif "pick" in raw.lower():
+            for p in st.session_state.players:
+                if p.lower() in raw.lower():
+                    st.session_state.picks[p] = min(3, st.session_state.picks.get(p, 0) + 1)
+                    pack_state(); st.rerun()
 
-with st.expander("⚠️ SERVER SLEEP PROTECTION & ARCHIVE LOADER"):
-    st.warning("Save your game if you are leaving the app for more than 15 mins.")
-    
-    # iOS-Friendly Text Area
-    save_code_str = pack_state()
-    st.text_area("👇 Tap inside here, press 'Select All', then 'Copy':", value=save_code_str, height=120)
-    
-    with st.form("restore_form", clear_on_submit=True):
-        restore_code = st.text_input("Paste an active game code here:")
-        if st.form_submit_button("Restore Active Game", use_container_width=True):
-            if unpack_state(restore_code.strip()): 
-                st.rerun()
-            else:
-                st.error("Invalid Code! Make sure you copied the whole block of text.")
+    if st.session_state.players:
+        if st.session_state.mode == "setup":
+            if st.button("🚀 LOCK NAMES & START", use_container_width=True):
+                st.session_state.mode = "play"; pack_state(); st.rerun()
+                
+        if st.session_state.mode == "play":
+            st.success(f"🎴 Current Dealer: {st.session_state.players[st.session_state.dealer]}")
+            colA, colB = st.columns(2)
+            with colA:
+                if st.button("↩️ Undo last round", use_container_width=True):
+                    if st.session_state.history:
+                        st.session_state.history.pop()
+                        st.session_state.dealer = (st.session_state.dealer - 1) % len(st.session_state.players)
+                        pack_state(); st.rerun()
+            with colB:
+                if st.button("🏁 End Game & Archive", type="primary", use_container_width=True):
+                    totals = {p: sum(r.get(p,0) for r in st.session_state.history) for p in st.session_state.players}
+                    st.session_state.archive.append({
+                        "game_type": "Grand Fan",
+                        "date": datetime.now().strftime("%b %d, %I:%M %p"),
+                        "totals": totals
+                    })
+                    st.session_state.update({"players": [], "history": [], "dealer": 0, "picks": {}, "mode": "setup"})
+                    pack_state(); st.rerun()
         
+        paper = draw_notebook(st.session_state.history, st.session_state.players, st.session_state.dealer, st.session_state.picks)
+        st.image(paper, use_container_width=True)
+        
+        if st.session_state.history:
+            st.write("### 📊 Live Totals")
+            st.table([{p: sum(r.get(p,0) for r in st.session_state.history) for p in st.session_state.players}])
+
     st.markdown("---")
-    uploaded_file = st.file_uploader("Upload a saved .json Archive File", type=["json"])
-    if uploaded_file is not None:
-        try:
-            loaded_data = json.load(uploaded_file)
-            existing_dates = [g["date"] for g in st.session_state.archive]
-            for game in loaded_data:
-                if game["date"] not in existing_dates: st.session_state.archive.append(game)
-            st.success("Archive Loaded! Please refresh page.")
-            pack_state()
-        except: st.error("File error.")
+    st.header("📁 Game Archive")
+    if st.session_state.archive:
+        sorted_archive = sorted(st.session_state.archive, key=lambda x: x.get('date', ''), reverse=True)
+        for game in sorted_archive:
+            game_type = game.get('game_type', 'Grand Fan')
+            with st.expander(f"🏆 {game_type} - {game['date']}"):
+                sorted_scores = sorted(game['totals'].items(), key=lambda item: item[1], reverse=True)
+                for rank, (p, score) in enumerate(sorted_scores, 1):
+                    star = "⭐" if rank == 1 else ""
+                    st.write(f"**{rank}. {p}**: {score} {star}")
+                    
+        archive_json = json.dumps(st.session_state.archive, indent=2)
+        st.download_button(
+            label="💾 Download Archive to iPhone",
+            data=archive_json,
+            file_name=f"ScoreArchive_{datetime.now().strftime('%Y%m%d')}.json",
+            mime="application/json",
+            use_container_width=True
+        )
+    else:
+        st.info("Finished games will appear here.")
+
+    with st.expander("⚠️ SERVER SLEEP PROTECTION"):
+        st.warning("Save your game if taking a break.")
+        save_code_str = pack_state()
+        st.text_area("👇 Tap inside here, press 'Select All', then 'Copy':", value=save_code_str, height=120)
+
+# --- 5. JUDGEMENT ---
+elif st.session_state.active_game == "Judgement":
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>⚖️ Judgement</h1>", unsafe_allow_html=True)
+    
+    if st.button("⬅️ Back to Menu"):
+        st.session_state.active_game = None
+        st.rerun()
+        
+    st.info("Ready to build! Tell me how the input and scoring mechanism should work for Judgement.")
