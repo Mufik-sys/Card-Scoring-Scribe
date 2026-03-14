@@ -140,7 +140,8 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
 
     # Live Bidding Row
     if mode in ["bid", "actual"]:
-        label = "Bids"
+        total_bids = sum(current_bids.values()) if current_bids else 0
+        label = f"Bids ({total_bids})" if mode == "actual" else "Bids"
         color = (150, 150, 150) if mode == "bid" else (220, 100, 100)
         draw.text((cx * 0.5, y), label, fill=color, font=font, anchor="mt")
         for i, p in enumerate(players):
@@ -153,7 +154,7 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
 # ==========================================
 
 if st.session_state.active_game is None:
-    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v20)</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v21)</h1>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🎴 Grand Fan Pro", use_container_width=True, type="primary"):
