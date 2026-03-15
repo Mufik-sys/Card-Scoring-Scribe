@@ -52,7 +52,7 @@ if 'active_game' not in st.session_state:
 
 # --- 2. DRAWING ENGINES ---
 
-# Engine A: Grand Fan (Standard Layout with Left Margin Fix, Tally Marks, and Winner Circles)
+# Engine A: Grand Fan (Standard Layout with Left Margin Fix, Tally Marks, and Winner Reversed Text Boxes)
 def draw_notebook(history, players, dealer_idx, picks):
     num_p = len(players)
     left_margin = 150  
@@ -86,14 +86,20 @@ def draw_notebook(history, players, dealer_idx, picks):
             x = left_margin + (i + 0.5) * cx
             val = r_sc.get(p, 0); totals[p] += val
             
+            # --- REVERSED TEXT BOX LOGIC ---
             if p == round_winner and val > 0:
                 try:
                     bbox = draw.textbbox((x, y), str(val), font=font, anchor="mt")
-                    pad_x, pad_y = 25, 10
-                    draw.ellipse([bbox[0]-pad_x, bbox[1]-pad_y, bbox[2]+pad_x, bbox[3]+pad_y], outline=(220, 50, 50), width=4)
-                except: pass
-                
-            draw.text((x, y), str(val), fill=(50, 50, 50), font=font, anchor="mt")
+                    pad_x, pad_y = 15, 5
+                    # Draw a solid dark green/gray filled box
+                    draw.rectangle([bbox[0]-pad_x, bbox[1]-pad_y, bbox[2]+pad_x, bbox[3]+pad_y], fill=(60, 120, 70))
+                    # Draw text in stark white on top of the box
+                    draw.text((x, y), str(val), fill=(255, 255, 255), font=font, anchor="mt")
+                except: 
+                    draw.text((x, y), str(val), fill=(50, 50, 50), font=font, anchor="mt")
+            else:
+                draw.text((x, y), str(val), fill=(50, 50, 50), font=font, anchor="mt")
+            # ---------------------------------
             
         y += 80
         draw.line([(20, y), (width-20, y)], fill=(255, 140, 0), width=3)
@@ -187,7 +193,7 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
 # ==========================================
 
 if st.session_state.active_game is None:
-    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v28)</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v29)</h1>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🎴 Grand Fan Pro", use_container_width=True, type="primary"):
@@ -420,7 +426,6 @@ if st.session_state.archive:
                     arch_img = draw_notebook(game["history"], game["players"], game.get("dealer", 0), game.get("picks", {}))
                     st.image(arch_img, use_container_width=True)
                 elif game_type == "Judgement":
-                    # Passing "archive" mode completely hides the Bids row at the bottom!
                     arch_img = draw_judgement_notebook(game["history"], game["players"], game.get("dealer", 0), game.get("bids", {}), "archive")
                     st.image(arch_img, use_container_width=True)
                 
