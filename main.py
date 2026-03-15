@@ -111,7 +111,7 @@ def draw_notebook(history, players, dealer_idx, picks):
         y += 100
     return img
 
-# Engine B: Judgement (Grid Layout with 'Rd' Column and Suits)
+# Engine B: Judgement (Grid Layout with 'Rd' Column, Suits, and Tick Marks)
 def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
     num_p = len(players)
     width = max(1000, (num_p + 1) * 230)
@@ -141,6 +141,22 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
         for i, p in enumerate(players):
             val = r_sc.get(p, 0); totals[p] += val
             draw.text((cx * (i + 1.5), y), str(val), fill=(50, 50, 50), font=font, anchor="mt")
+            
+            # --- NEW GREEN TICK MARK LOGIC ---
+            if val > 0:
+                try:
+                    bbox = draw.textbbox((cx * (i + 1.5), y), str(val), font=font, anchor="mt")
+                    tx = bbox[2] + 12
+                    ty = bbox[1] + ((bbox[3] - bbox[1]) // 2) + 5
+                    # Physically draw a 3-point checkmark line
+                    draw.line([(tx, ty), (tx+8, ty+12), (tx+25, ty-15)], fill=(40, 180, 40), width=4)
+                except:
+                    # Failsafe positioning if text bounding box fails
+                    tx = (cx * (i + 1.5)) + 40
+                    ty = y + 35
+                    draw.line([(tx, ty), (tx+8, ty+12), (tx+25, ty-15)], fill=(40, 180, 40), width=4)
+            # ---------------------------------
+            
         y += 80
         draw.line([(20, y), (width-20, y)], fill=(255, 140, 0), width=3)
         y += 10
@@ -169,7 +185,7 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
 # ==========================================
 
 if st.session_state.active_game is None:
-    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v26)</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v27)</h1>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🎴 Grand Fan Pro", use_container_width=True, type="primary"):
@@ -245,7 +261,6 @@ elif st.session_state.active_game == "Grand Fan":
                 if st.button("🏁 End Game & Archive", type="primary", use_container_width=True):
                     totals = {p: sum(r.get(p,0) for r in st.session_state.history) for p in st.session_state.players}
                     local_time = datetime.utcnow() + timedelta(hours=st.session_state.tz_offset)
-                    # We now save all the raw data into the archive so we can draw it later
                     st.session_state.archive.append({
                         "game_type": "Grand Fan", 
                         "date": local_time.strftime("%b %d, %I:%M %p"), 
@@ -347,7 +362,6 @@ elif st.session_state.active_game == "Judgement":
                 totals = {p: sum(r.get(p,0) for r in st.session_state.j_history) for p in st.session_state.j_players}
                 local_time = datetime.utcnow() + timedelta(hours=st.session_state.tz_offset)
                 
-                # Save Judgement raw data to archive
                 st.session_state.archive.append({
                     "game_type": "Judgement", 
                     "date": local_time.strftime("%b %d, %I:%M %p"), 
@@ -397,7 +411,6 @@ if st.session_state.archive:
                 star = "⭐" if rank == 1 else ""
                 st.write(f"**{rank}. {p}**: {score} {star}")
             
-            # Instantly re-draw the historical scorecard if data is available!
             if "history" in game and "players" in game:
                 st.markdown("---")
                 st.write("📝 **Final Scorecard**")
