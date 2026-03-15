@@ -52,10 +52,10 @@ if 'active_game' not in st.session_state:
 
 # --- 2. DRAWING ENGINES ---
 
-# Engine A: Grand Fan (Standard Layout with Left Margin Fix & Tally Marks)
+# Engine A: Grand Fan (Standard Layout with Left Margin Fix, Tally Marks, and Winner Circles)
 def draw_notebook(history, players, dealer_idx, picks):
     num_p = len(players)
-    left_margin = 150  # Dedicated space for Round numbers
+    left_margin = 150  
     width = max(1000, left_margin + (num_p * 230))
     height = max(800, 400 + (len(history) * 200))
     img = Image.new('RGB', (width, height), (255, 255, 255))
@@ -71,7 +71,6 @@ def draw_notebook(history, players, dealer_idx, picks):
     for i, p in enumerate(players):
         x = left_margin + (i + 0.5) * cx
         tk = picks.get(p, 0)
-        # Draw the tally marks above the name in dark blue pen color
         if tk > 0: draw.text((x, 90), "|" * tk, fill=(40, 40, 100), font=font, anchor="mt")
         disp = p.capitalize()
         if i == dealer_idx: disp += " (D)"
@@ -80,12 +79,20 @@ def draw_notebook(history, players, dealer_idx, picks):
     y = 280
     totals = {p: 0 for p in players}
     for r_idx, r_sc in enumerate(history, 1):
-        # Round number stays safely in the left margin
         draw.text((left_margin / 2, y), str(r_idx), fill=(160, 160, 160), font=font, anchor="mt")
+        round_winner = max(r_sc.items(), key=lambda item: item[1])[0] if r_sc else None
         
         for i, p in enumerate(players):
             x = left_margin + (i + 0.5) * cx
             val = r_sc.get(p, 0); totals[p] += val
+            
+            if p == round_winner and val > 0:
+                try:
+                    bbox = draw.textbbox((x, y), str(val), font=font, anchor="mt")
+                    pad_x, pad_y = 25, 10
+                    draw.ellipse([bbox[0]-pad_x, bbox[1]-pad_y, bbox[2]+pad_x, bbox[3]+pad_y], outline=(220, 50, 50), width=4)
+                except: pass
+                
             draw.text((x, y), str(val), fill=(50, 50, 50), font=font, anchor="mt")
             
         y += 80
@@ -116,7 +123,6 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
     except: font = ImageFont.load_default()
     cx = width / (num_p + 1)
     
-    # Headers
     draw.text((cx * 0.5, 150), "Rd", fill=(100, 100, 100), font=font, anchor="mt")
     for i, p in enumerate(players):
         disp = p.capitalize()
@@ -127,7 +133,6 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
     totals = {p: 0 for p in players}
     suit_pattern = ['S', 'H', 'D', 'C', 'NT']
     
-    # History
     for r_idx, r_sc in enumerate(history, 1):
         suit_suffix = suit_pattern[(r_idx - 1) % 5]
         rd_label = f"{r_idx}{suit_suffix}"
@@ -149,7 +154,6 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
                 draw.text((cx * (i + 1.5), y), score_txt, fill=(255, 130, 0), font=font, anchor="mt")
         y += 100
 
-    # Live Bidding Row
     if mode in ["bid", "actual"]:
         total_bids = sum(current_bids.values()) if current_bids else 0
         label = f"Bids ({total_bids})" if mode == "actual" else "Bids"
@@ -165,7 +169,7 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
 # ==========================================
 
 if st.session_state.active_game is None:
-    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v24)</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v26)</h1>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🎴 Grand Fan Pro", use_container_width=True, type="primary"):
@@ -241,7 +245,16 @@ elif st.session_state.active_game == "Grand Fan":
                 if st.button("🏁 End Game & Archive", type="primary", use_container_width=True):
                     totals = {p: sum(r.get(p,0) for r in st.session_state.history) for p in st.session_state.players}
                     local_time = datetime.utcnow() + timedelta(hours=st.session_state.tz_offset)
-                    st.session_state.archive.append({"game_type": "Grand Fan", "date": local_time.strftime("%b %d, %I:%M %p"), "totals": totals})
+                    # We now save all the raw data into the archive so we can draw it later
+                    st.session_state.archive.append({
+                        "game_type": "Grand Fan", 
+                        "date": local_time.strftime("%b %d, %I:%M %p"), 
+                        "totals": totals,
+                        "players": list(st.session_state.players),
+                        "history": list(st.session_state.history),
+                        "dealer": st.session_state.dealer,
+                        "picks": dict(st.session_state.picks)
+                    })
                     st.session_state.update({"players": [], "history": [], "dealer": 0, "picks": {}, "mode": "setup"})
                     pack_state(); st.rerun()
         
@@ -260,7 +273,6 @@ elif st.session_state.active_game == "Judgement":
 
     bids = {}
     
-    # PHASE 1: SETUP
     if st.session_state.j_mode == "setup":
         with st.form("j_input_form", clear_on_submit=True):
             cmd = st.text_input("Enter Player Names (space separated):")
@@ -273,7 +285,6 @@ elif st.session_state.active_game == "Judgement":
             if st.button("🚀 LOCK NAMES & START", use_container_width=True, type="primary"):
                 st.session_state.j_mode = "bid"; pack_state(); st.rerun()
 
-    # PHASE 2: BIDDING
     elif st.session_state.j_mode == "bid":
         st.success(f"🎴 Current Dealer: {st.session_state.j_players[st.session_state.j_dealer]}")
         st.write("### 🔮 Bidding Phase")
@@ -292,7 +303,6 @@ elif st.session_state.active_game == "Judgement":
             st.session_state.j_mode = "actual"
             pack_state(); st.rerun()
 
-    # PHASE 3: ACTUALS
     elif st.session_state.j_mode == "actual":
         st.warning("### 🎯 Enter Actual Hands Won")
         actuals = {}
@@ -322,7 +332,6 @@ elif st.session_state.active_game == "Judgement":
             st.session_state.j_mode = "bid"
             pack_state(); st.rerun()
 
-    # RENDER JUDGEMENT BOARD
     if st.session_state.j_players and st.session_state.j_mode != "setup":
         colA, colB = st.columns(2)
         with colA:
@@ -337,7 +346,17 @@ elif st.session_state.active_game == "Judgement":
             if st.button("🏁 End Game & Archive", type="primary", use_container_width=True):
                 totals = {p: sum(r.get(p,0) for r in st.session_state.j_history) for p in st.session_state.j_players}
                 local_time = datetime.utcnow() + timedelta(hours=st.session_state.tz_offset)
-                st.session_state.archive.append({"game_type": "Judgement", "date": local_time.strftime("%b %d, %I:%M %p"), "totals": totals})
+                
+                # Save Judgement raw data to archive
+                st.session_state.archive.append({
+                    "game_type": "Judgement", 
+                    "date": local_time.strftime("%b %d, %I:%M %p"), 
+                    "totals": totals,
+                    "players": list(st.session_state.j_players),
+                    "history": list(st.session_state.j_history),
+                    "dealer": st.session_state.j_dealer,
+                    "bids": dict(st.session_state.j_bids)
+                })
                 st.session_state.update({"j_players": [], "j_history": [], "j_dealer": 0, "j_bids": {}, "j_mode": "setup"})
                 pack_state(); st.rerun()
                 
@@ -345,7 +364,6 @@ elif st.session_state.active_game == "Judgement":
         paper = draw_judgement_notebook(st.session_state.j_history, st.session_state.j_players, st.session_state.j_dealer, current_drawing_bids, st.session_state.j_mode)
         st.image(paper, use_container_width=True)
 
-        # ✏️ MANUAL SCORE EDITOR
         if st.session_state.j_history:
             with st.expander("✏️ Edit Last Round's Scores"):
                 st.write("Manually override the points awarded in the most recent round.")
@@ -367,7 +385,6 @@ col_arch1, col_arch2 = st.columns([2, 1])
 with col_arch1:
     st.header("📁 Global Game Archive")
 with col_arch2:
-    # ⏱️ TIMEZONE OFFSET SELECTOR
     st.session_state.tz_offset = st.number_input("GMT Offset (Hrs)", value=st.session_state.get('tz_offset', 0), step=1, help="Set your local timezone hours ahead or behind GMT (e.g., +4).")
 
 if st.session_state.archive:
@@ -379,6 +396,17 @@ if st.session_state.archive:
             for rank, (p, score) in enumerate(sorted_scores, 1):
                 star = "⭐" if rank == 1 else ""
                 st.write(f"**{rank}. {p}**: {score} {star}")
+            
+            # Instantly re-draw the historical scorecard if data is available!
+            if "history" in game and "players" in game:
+                st.markdown("---")
+                st.write("📝 **Final Scorecard**")
+                if game_type == "Grand Fan":
+                    arch_img = draw_notebook(game["history"], game["players"], game.get("dealer", 0), game.get("picks", {}))
+                    st.image(arch_img, use_container_width=True)
+                elif game_type == "Judgement":
+                    arch_img = draw_judgement_notebook(game["history"], game["players"], game.get("dealer", 0), game.get("bids", {}), "actual")
+                    st.image(arch_img, use_container_width=True)
                 
     archive_json = json.dumps(st.session_state.archive, indent=2)
     st.download_button(
