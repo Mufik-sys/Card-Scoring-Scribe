@@ -111,7 +111,7 @@ def draw_notebook(history, players, dealer_idx, picks):
         y += 100
     return img
 
-# Engine B: Judgement (Grid Layout with 'Rd' Column, Suits, and Tick Marks)
+# Engine B: Judgement (Grid Layout with 'Rd' Column, Suits, and Reversed Text Boxes)
 def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
     num_p = len(players)
     width = max(1000, (num_p + 1) * 230)
@@ -140,21 +140,22 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
         draw.text((cx * 0.5, y), rd_label, fill=(160, 160, 160), font=font, anchor="mt")
         for i, p in enumerate(players):
             val = r_sc.get(p, 0); totals[p] += val
-            draw.text((cx * (i + 1.5), y), str(val), fill=(50, 50, 50), font=font, anchor="mt")
             
-            # --- NEW GREEN TICK MARK LOGIC ---
+            # --- REVERSED TEXT BOX LOGIC ---
             if val > 0:
                 try:
                     bbox = draw.textbbox((cx * (i + 1.5), y), str(val), font=font, anchor="mt")
-                    tx = bbox[2] + 12
-                    ty = bbox[1] + ((bbox[3] - bbox[1]) // 2) + 5
-                    # Physically draw a 3-point checkmark line
-                    draw.line([(tx, ty), (tx+8, ty+12), (tx+25, ty-15)], fill=(40, 180, 40), width=4)
+                    pad_x, pad_y = 15, 5
+                    # Draw a solid dark green/gray filled box
+                    draw.rectangle([bbox[0]-pad_x, bbox[1]-pad_y, bbox[2]+pad_x, bbox[3]+pad_y], fill=(60, 120, 70))
+                    # Draw text in stark white on top of the box
+                    draw.text((cx * (i + 1.5), y), str(val), fill=(255, 255, 255), font=font, anchor="mt")
                 except:
-                    # Failsafe positioning if text bounding box fails
-                    tx = (cx * (i + 1.5)) + 40
-                    ty = y + 35
-                    draw.line([(tx, ty), (tx+8, ty+12), (tx+25, ty-15)], fill=(40, 180, 40), width=4)
+                    # Failsafe if bounding box fails
+                    draw.text((cx * (i + 1.5), y), str(val), fill=(50, 50, 50), font=font, anchor="mt")
+            else:
+                # Normal dark text for negative scores
+                draw.text((cx * (i + 1.5), y), str(val), fill=(50, 50, 50), font=font, anchor="mt")
             # ---------------------------------
             
         y += 80
@@ -170,6 +171,7 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
                 draw.text((cx * (i + 1.5), y), score_txt, fill=(255, 130, 0), font=font, anchor="mt")
         y += 100
 
+    # Only draw this row if the game is actively in 'bid' or 'actual' mode (Hidden in Archives)
     if mode in ["bid", "actual"]:
         total_bids = sum(current_bids.values()) if current_bids else 0
         label = f"Bids ({total_bids})" if mode == "actual" else "Bids"
@@ -185,7 +187,7 @@ def draw_judgement_notebook(history, players, dealer_idx, current_bids, mode):
 # ==========================================
 
 if st.session_state.active_game is None:
-    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v27)</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='font-size: 26px; padding-top: 0;'>🎲 Select Game (v28)</h1>", unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🎴 Grand Fan Pro", use_container_width=True, type="primary"):
@@ -418,7 +420,8 @@ if st.session_state.archive:
                     arch_img = draw_notebook(game["history"], game["players"], game.get("dealer", 0), game.get("picks", {}))
                     st.image(arch_img, use_container_width=True)
                 elif game_type == "Judgement":
-                    arch_img = draw_judgement_notebook(game["history"], game["players"], game.get("dealer", 0), game.get("bids", {}), "actual")
+                    # Passing "archive" mode completely hides the Bids row at the bottom!
+                    arch_img = draw_judgement_notebook(game["history"], game["players"], game.get("dealer", 0), game.get("bids", {}), "archive")
                     st.image(arch_img, use_container_width=True)
                 
     archive_json = json.dumps(st.session_state.archive, indent=2)
